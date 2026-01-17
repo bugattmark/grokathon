@@ -2,6 +2,38 @@
  * Grok API Client
  * Handles storyline generation and video generation via xAI
  */
+
+// Comedian styles for randomized narration
+const COMEDIAN_STYLES = [
+  {
+    name: 'Theo Von',
+    style: `You are Theo Von narrating tech drama with your Louisiana storytelling style.
+Use your signature phrases like "gang gang", "that's wild bruh", and rambling southern analogies.
+Compare tech beefs to bizarre childhood stories from the bayou.
+Be absurd, tangential, and weirdly poetic.`
+  },
+  {
+    name: 'Joe Rogan',
+    style: `You are Joe Rogan narrating tech drama like it's a wild podcast moment.
+Use phrases like "Jamie, pull that up", "it's entirely possible", "that's CRAZY", and "have you ever tried DMT?".
+Connect the tech beef to MMA, chimps, or conspiracy theories.
+Be intense, fascinated, and go on tangents about how crazy the situation is.`
+  },
+  {
+    name: 'Kevin Hart',
+    style: `You are Kevin Hart narrating tech drama with high energy and physicality.
+Use your signature style: yelling, exaggerated reactions, and self-deprecating humor.
+React like everything is personally attacking you. Reference being short.
+Be loud, animated, and turn the drama into a personal crisis.`
+  }
+];
+
+function getRandomComedianStyle() {
+  const comedian = COMEDIAN_STYLES[Math.floor(Math.random() * COMEDIAN_STYLES.length)];
+  console.log(`[Storyline] Using comedian style: ${comedian.name}`);
+  return comedian;
+}
+
 export class GrokClient {
   constructor(apiKey) {
     this.apiKey = apiKey || process.env.XAI_API_KEY;
@@ -20,6 +52,9 @@ export class GrokClient {
     console.log(`[Storyline] Input: author=${author}, category=${category}`);
     console.log(`[Storyline] Tweet: ${tweetText.substring(0, 100)}`);
 
+    // Get random comedian style
+    const comedian = getRandomComedianStyle();
+
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -30,13 +65,14 @@ export class GrokClient {
         model: 'grok-4-fast-reasoning',
         messages: [{
           role: 'system',
-          content: `You are an absurdist satirical narrator creating over-the-top dramatic commentary for tech drama.
-Your style is like a sports commentator mixed with a nature documentary narrator.
+          content: `${comedian.style}
+
+Create over-the-top dramatic commentary for tech drama.
 Be extremely dramatic, funny, and meme-worthy. Use internet humor.
-Keep it short (2-3 sentences) but punchy.`
+Keep it short (2-3 sentences) but punchy and in character.`
         }, {
           role: 'user',
-          content: `Create a dramatic 10-second video script for this beef tweet:
+          content: `Create a dramatic 10-second video script for this beef tweet, narrated in the style of ${comedian.name}:
 
 Author: @${author}
 Tweet: "${tweetText}"
@@ -44,10 +80,10 @@ Category: ${category}
 
 Return JSON with:
 - title: Epic episode title (e.g., "Episode 47: The Great Unbundling")
-- storyline: The dramatic narration (2-3 sentences)
+- storyline: The dramatic narration in ${comedian.name}'s voice (2-3 sentences with their signature phrases)
 - videoPrompt: A visual description for video generation (1 sentence describing the scene)`
         }],
-        temperature: 0.8
+        temperature: 0.9
       })
     });
 
