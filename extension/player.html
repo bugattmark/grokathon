@@ -4,74 +4,86 @@
   <title>Beef Video Player</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
+    html, body {
+      width: 100%;
+      height: 100%;
       background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       color: #fff;
-      padding: 20px;
+      overflow: hidden;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      padding: 12px;
     }
     .header {
       display: flex;
       align-items: center;
-      gap: 12px;
-      margin-bottom: 20px;
+      gap: 10px;
+      margin-bottom: 10px;
+      flex-shrink: 0;
     }
     .badge {
       background: #e94560;
-      padding: 6px 12px;
+      padding: 4px 10px;
       border-radius: 4px;
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 600;
     }
     .title {
-      font-size: 20px;
+      font-size: 14px;
       font-weight: 600;
-      max-width: 600px;
-      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .video-container {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       background: #000;
-      border-radius: 12px;
+      border-radius: 8px;
       overflow: hidden;
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-      max-width: 100%;
     }
     video {
-      display: block;
-      max-width: 800px;
-      max-height: 70vh;
       width: 100%;
+      height: 100%;
+      object-fit: contain;
     }
     .storyline {
-      margin-top: 20px;
-      max-width: 600px;
-      text-align: center;
+      margin-top: 10px;
+      font-size: 11px;
       color: #aaa;
-      font-size: 14px;
-      line-height: 1.6;
+      line-height: 1.4;
+      max-height: 60px;
+      overflow-y: auto;
+      flex-shrink: 0;
     }
     .footer {
-      margin-top: 30px;
-      font-size: 12px;
+      margin-top: 8px;
+      font-size: 10px;
       color: #555;
+      text-align: center;
+      flex-shrink: 0;
     }
   </style>
 </head>
 <body>
-  <div class="header">
-    <span class="badge">BEEF ALERT</span>
-    <span class="title" id="title">Loading...</span>
+  <div class="container">
+    <div class="header">
+      <span class="badge">🎬 BEEF ALERT</span>
+      <span class="title" id="title">Loading...</span>
+    </div>
+    <div class="video-container">
+      <video id="video" controls autoplay></video>
+    </div>
+    <p class="storyline" id="storyline"></p>
+    <div class="footer">Grokathon 2025</div>
   </div>
-  <div class="video-container">
-    <video id="video" controls autoplay></video>
-  </div>
-  <p class="storyline" id="storyline"></p>
-  <div class="footer">Grokathon 2025</div>
   <script src="player.js"></script>
 </body>
 </html>

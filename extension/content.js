@@ -230,24 +230,34 @@ async function injectVideoPlayer(tweetElement) {
     player.querySelector('.beef-storyline p').textContent = data.storyline;
 
     if (data.video_url) {
-      log('Updating player with video URL:', data.video_url);
-      const wrapper = player.querySelector('.beef-video-wrapper');
-      wrapper.innerHTML = `
-        <div class="beef-video-preview" style="cursor: pointer; position: relative; min-height: 200px; background: #1a1a2e; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-direction: column;">
-          ${data.thumbnail_url ? `<img src="${data.thumbnail_url}" alt="Video thumbnail" style="width: 100%; border-radius: 8px;" onerror="this.style.display='none'" />` : ''}
-          <div class="beef-play-overlay" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(229, 69, 96, 0.9); border-radius: 50%; width: 70px; height: 70px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 20px rgba(229, 69, 96, 0.5);">
-            <span style="color: white; font-size: 28px; margin-left: 4px;">▶</span>
-          </div>
-          <p style="text-align: center; color: #aaa; font-size: 12px; margin-top: 8px; position: absolute; bottom: 10px;">Click to watch video</p>
-        </div>
-      `;
+      log('Embedding video iframe with URL:', data.video_url);
 
-      // Add click handler
-      const preview = wrapper.querySelector('.beef-video-preview');
-      preview.addEventListener('click', () => {
-        log('User clicked to watch video');
-        openVideoPopup(data.video_url, data.title || 'Beef Video', data.storyline || '');
+      // Hide outer header/storyline since iframe has its own
+      const header = player.querySelector('.beef-video-header');
+      const storyline = player.querySelector('.beef-storyline');
+      if (header) header.style.display = 'none';
+      if (storyline) storyline.style.display = 'none';
+
+      const wrapper = player.querySelector('.beef-video-wrapper');
+
+      // Build iframe URL to extension's player page
+      const playerUrl = chrome.runtime.getURL('player.html');
+      const params = new URLSearchParams({
+        video: data.video_url,
+        title: data.title || 'Beef Video',
+        storyline: data.storyline || ''
       });
+      const iframeSrc = `${playerUrl}?${params.toString()}`;
+
+      // Embed iframe inline (bypasses X.com CSP)
+      wrapper.innerHTML = `
+        <iframe
+          src="${iframeSrc}"
+          style="width: 100%; height: 420px; border: none; border-radius: 8px;"
+          allow="autoplay"
+        ></iframe>
+      `;
+      log('Video iframe embedded successfully');
     }
 
   } catch (error) {
