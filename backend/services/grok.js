@@ -7,10 +7,7 @@
  * - Video editing: POST /v1/videos/edits with model "grok-imagine-video-beta"
  * - Image to Video: Use image_url parameter as starting point
  * - Polling: GET /v1/videos/{request_id}
- *
- * LIMITATION: The xAI video API does not currently support a duration parameter.
- * Videos are generated at a fixed duration (typically ~5-6 seconds per clip).
- * To achieve longer videos (15+ seconds), multiple clips must be generated and concatenated.
+ * - Duration: Use duration parameter to control video length (e.g., 15 seconds)
  */
 
 // Narrator styles for randomized narration (comedians + cartoons)
@@ -87,14 +84,15 @@ function sleep(ms) {
 
 /**
  * Calculate exponential backoff delay
+ * Uses 1.5x multiplier for faster polling (5 polls in ~13s vs 60s with 2x)
  * @param {number} attempt - Current attempt number (0-indexed)
- * @param {number} baseDelay - Base delay in milliseconds
- * @param {number} maxDelay - Maximum delay cap in milliseconds
+ * @param {number} baseDelay - Base delay in milliseconds (default: 1000)
+ * @param {number} maxDelay - Maximum delay cap in milliseconds (default: 10000)
  */
-function getBackoffDelay(attempt, baseDelay = 1000, maxDelay = 30000) {
-  const delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
-  // Add jitter (up to 20% of delay)
-  const jitter = delay * 0.2 * Math.random();
+function getBackoffDelay(attempt, baseDelay = 1000, maxDelay = 10000) {
+  const delay = Math.min(baseDelay * Math.pow(1.5, attempt), maxDelay);
+  // Add jitter (up to 10% of delay)
+  const jitter = delay * 0.1 * Math.random();
   return Math.floor(delay + jitter);
 }
 
@@ -105,16 +103,62 @@ export class GrokClient {
     // Video API not yet public - use demo mode for hackathon
     this.demoMode = process.env.DEMO_MODE === 'true';
 
-    // Target duration for videos (in seconds)
-    // NOTE: xAI API does not support duration parameter - each clip is ~5-6 seconds
-    // For 15 seconds, we would need to generate ~3 clips and concatenate
-    this.targetDuration = 15;
-    this.clipDuration = 5; // Approximate duration per generated clip
+    // Default duration for videos (in seconds)
+    this.defaultDuration = 15;
   }
 
   /**
-   * Generate a meme/satirical storyline for a beef tweet
-   * Includes richer context from thread and user information
+   * Classify a tweet as "slop" (trash opinions) or "no_slop" (interesting tech content)
+   * Used to route tweets to different video generation paths
+   *
+   * @param {string} tweetText - The tweet content to classify
+   * @returns {Object} - { type: 'slop' | 'no_slop' }
+   */
+  async classifyTweet(tweetText) {
+    console.log(`[Classify] Classifying tweet: ${tweetText.substring(0, 80)}...`);
+
+    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'grok-3-fast',
+        messages: [{
+          role: 'system',
+          content: `Classify this tweet as either "slop" or "no_slop".
+
+SLOP = Trash opinions, hot takes, hustle culture, crypto shilling, motivational nonsense, engagement bait, nothing of substance.
+
+NO_SLOP = Actual tech news, product announcements, AI discoveries, new features, interesting technical content, real information.
+
+Respond with ONLY one word: "slop" or "no_slop"`
+        }, {
+          role: 'user',
+          content: tweetText
+        }],
+        temperature: 0
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Tweet classification failed: ${error}`);
+    }
+
+    const data = await response.json();
+    const result = data.choices?.[0]?.message?.content?.toLowerCase().trim();
+    const type = result === 'no_slop' ? 'no_slop' : 'slop';
+    console.log(`[Classify] Result: ${type}`);
+    return { type };
+  }
+
+  /**
+   * Generate a storyline based on tweet classification
+   * Routes to different generation paths:
+   * - NO_SLOP: Elon Musk news report style (interesting tech content)
+   * - SLOP: Character throws tweet in trash (trash opinions)
    *
    * @param {string} tweetText - The tweet content
    * @param {string} author - Tweet author handle
@@ -123,30 +167,63 @@ export class GrokClient {
    * @param {string} context.userBio - Author's bio/description
    * @param {string} context.userFollowers - Follower count for context
    * @param {Array} context.replyingTo - Users being replied to
+   * @param {string} classification - 'slop' or 'no_slop' (default: 'slop')
    */
-  async generateStoryline(tweetText, author, context = {}) {
-    console.log(`[Storyline] Input: author=${author}`);
+  async generateStoryline(tweetText, author, context = {}, classification = 'slop') {
+    console.log(`[Storyline] Input: author=${author}, classification=${classification}`);
     console.log(`[Storyline] Tweet: ${tweetText.substring(0, 100)}`);
-    if (context.threadContext) {
-      console.log(`[Storyline] Thread context provided: ${context.threadContext.substring(0, 100)}...`);
-    }
 
-    // Get random narrator style (comedian or cartoon)
-    const narrator = getRandomNarratorStyle();
+    let systemPrompt, userPrompt, narratorName;
 
-    // Build rich context for better storylines
-    let contextBlock = '';
-    if (context.threadContext) {
-      contextBlock += `\n\nTHREAD CONTEXT (previous tweets in conversation):\n${context.threadContext}`;
-    }
-    if (context.userBio) {
-      contextBlock += `\n\nABOUT @${author}: ${context.userBio}`;
-    }
-    if (context.userFollowers) {
-      contextBlock += ` (${context.userFollowers} followers)`;
-    }
-    if (context.replyingTo && context.replyingTo.length > 0) {
-      contextBlock += `\n\nREPLYING TO: ${context.replyingTo.join(', ')}`;
+    if (classification === 'no_slop') {
+      // NO SLOP: Elon Musk news report style
+      console.log(`[Storyline] Using NO_SLOP path: Elon Musk news report`);
+      narratorName = 'Elon Musk';
+
+      systemPrompt = `You are Elon Musk hosting a satirical tech news segment.
+
+STYLE: Deadpan news anchor delivery. Sarcastic. Reads the tweet like breaking news, then roasts the feature/idea, then says you're emailing your engineers (Nikita or Toby Pohlen) to implement this immediately.
+
+CRITICAL CONSTRAINT: The storyline MUST be EXACTLY 10-15 WORDS. It must fit in 7 seconds.`;
+
+      userPrompt = `Breaking news segment about this tweet. Roast it, then say you're emailing your team to build it.
+
+Tweet from @${author}: "${tweetText}"
+
+Return JSON:
+{
+  "title": "News headline (3-5 words)",
+  "storyline": "MAX 15 WORDS. News anchor Elon roasts this, then emails team to implement.",
+  "narrator": "Elon Musk",
+  "videoPrompt": "Elon Musk as news anchor at desk, then typing email on computer",
+  "scenes": ["Elon at news desk..."]
+}`;
+
+    } else {
+      // SLOP: Character throws tweet in trash
+      const characters = ['SpongeBob SquarePants', 'Peter Griffin', 'Patrick Star', 'Eric Cartman', 'Homer Simpson'];
+      const character = characters[Math.floor(Math.random() * characters.length)];
+      console.log(`[Storyline] Using SLOP path: ${character} throws tweet in trash`);
+      narratorName = character;
+
+      systemPrompt = `You are ${character} reacting to a trash tweet.
+
+STYLE: ${character} reads the tweet out loud, makes a disgusted face, then literally throws it in a garbage bin. Says something like "This opinion is garbage" or "Straight to the trash" in character.
+
+CRITICAL CONSTRAINT: The storyline MUST be EXACTLY 10-15 WORDS. It must fit in 7 seconds.`;
+
+      userPrompt = `React to this trash tweet and throw it in the garbage.
+
+Tweet from @${author}: "${tweetText}"
+
+Return JSON:
+{
+  "title": "Funny title (3-5 words)",
+  "storyline": "MAX 15 WORDS. ${character} reads tweet, throws in trash, says it's garbage.",
+  "narrator": "${character}",
+  "videoPrompt": "${character} holding paper with tweet, disgusted face, throws in trash bin",
+  "scenes": ["${character} reading tweet, then throwing in trash..."]
+}`;
     }
 
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
@@ -156,26 +233,11 @@ export class GrokClient {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'grok-4-fast-reasoning',
-        messages: [{
-          role: 'system',
-          content: `${narrator.style}
-
-CRITICAL: Stay completely in character. Use their exact phrases, speech patterns, and comedic style. The output must be immediately recognizable as this character speaking.`
-        }, {
-          role: 'user',
-          content: `Narrate this tweet AS ${narrator.name}. Stay 100% in character.
-
-@${author}: "${tweetText}"${contextBlock}
-
-Return JSON:
-{
-  "title": "Episode title in ${narrator.name}'s voice",
-  "storyline": "2-3 sentences narration with ${narrator.name}'s signature phrases",
-  "videoPrompt": "Visual scene description (1 sentence)",
-  "scenes": ["Scene 1 description", "Scene 2 description", "Scene 3 description"]
-}`
-        }],
+        model: 'grok-3-fast',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
         temperature: 0.9
       })
     });
@@ -198,35 +260,78 @@ Return JSON:
         if (!parsed.scenes || !Array.isArray(parsed.scenes)) {
           parsed.scenes = [parsed.videoPrompt];
         }
+        // Add classification to the result for downstream use
+        parsed.classification = classification;
         return parsed;
       }
     } catch (e) {
       console.log('Failed to parse storyline JSON, using raw content');
     }
 
-    // Fallback
+    // Fallback based on classification
+    if (classification === 'no_slop') {
+      return {
+        title: 'Breaking Tech News',
+        storyline: content || 'Breaking news. This is interesting. Emailing the team now.',
+        narrator: 'Elon Musk',
+        videoPrompt: 'Elon Musk as news anchor at professional desk, speaking to camera',
+        scenes: ['Elon Musk at news desk speaking'],
+        classification: 'no_slop'
+      };
+    }
+
     return {
-      title: 'Tech Drama Unfolds',
-      storyline: content,
-      videoPrompt: 'Epic tech rivalry scene with dramatic lighting',
-      scenes: ['Epic tech rivalry scene with dramatic lighting']
+      title: 'Trash Opinion Alert',
+      storyline: content || 'This opinion is absolute garbage. Straight to the trash.',
+      narrator: narratorName,
+      videoPrompt: `${narratorName} holding paper, disgusted, throws in trash bin`,
+      scenes: [`${narratorName} throwing paper in garbage`],
+      classification: 'slop'
     };
   }
 
   /**
    * Generate video from prompt using grok-imagine-video-a2
    *
-   * NOTE: xAI API does not support a duration parameter.
-   * Each clip is approximately 5-6 seconds. To achieve longer videos,
-   * we generate multiple clips that can be concatenated client-side.
-   *
    * @param {string} prompt - Video description
-   * @param {number} targetDuration - Target duration in seconds (default: 15)
-   * @returns {Object} - { videoUrl, duration, clips, limitation }
+   * @param {number} targetDuration - Duration in seconds (default: 15)
+   * @param {Object} context - Optional context for better video generation
+   * @param {string} context.author - Tweet author handle
+   * @param {string} context.tweetText - Original tweet text
+   * @param {string} context.narrator - Character name for speaking (e.g., "Joe Rogan", "SpongeBob")
+   * @param {string} context.narration - Script for the character to speak
+   * @returns {Object} - { videoUrl, duration }
    */
-  async generateVideo(prompt, targetDuration = 15) {
+  async generateVideo(prompt, targetDuration = 15, context = {}) {
     console.log(`[Video] Generating: ${prompt.substring(0, 80)}...`);
-    console.log(`[Video] Target duration: ${targetDuration}s (note: API generates ~5-6s clips)`);
+    console.log(`[Video] Duration: ${targetDuration}s`);
+
+    // Enhance prompt with context if available
+    let enhancedPrompt = prompt;
+
+    // Classification-based video prompt enhancement
+    if (context.narrator === 'Elon Musk') {
+      // NO SLOP: News report style
+      enhancedPrompt = `Elon Musk as a news anchor at a professional news desk. Speaking these EXACT words: "${context.narration}"
+
+VISUAL: Clean news studio setting. Elon in suit sitting at anchor desk, looking at camera. Breaking news graphics on screen. Then cut to him typing on laptop. Professional news broadcast style.`;
+      console.log(`[Video] Enhanced prompt for NO_SLOP: Elon news report`);
+
+    } else if (context.narration && context.narrator) {
+      // SLOP: Character throws tweet in trash
+      const tweetPreview = context.tweetText?.substring(0, 50) || 'trash opinion';
+      enhancedPrompt = `${context.narrator} holding a piece of paper with a tweet on it. Speaking these EXACT words: "${context.narration}"
+
+VISUAL: ${context.narrator} reads the paper with disgust, crumples it up, and throws it into a garbage bin. Exaggerated cartoon disgust. The tweet text "${tweetPreview}..." should be visible on the paper. Comedic timing. Over-the-top reaction.`;
+      console.log(`[Video] Enhanced prompt for SLOP: ${context.narrator} throws tweet in trash`);
+
+    } else if (context.narration) {
+      // Fallback with narration
+      enhancedPrompt = `Create a video with narration: "${context.narration}"
+
+VISUAL: ${prompt}`;
+      console.log(`[Video] Enhanced prompt with narration script (fallback)`);
+    }
 
     // Submit video generation request
     const response = await fetch(`${this.baseUrl}/videos/generations`, {
@@ -237,8 +342,8 @@ Return JSON:
       },
       body: JSON.stringify({
         model: 'grok-imagine-video-a2',
-        prompt: prompt
-        // NOTE: duration parameter not supported by xAI API as of current docs
+        prompt: enhancedPrompt,
+        duration: targetDuration  // Request specific duration (e.g., 15 seconds)
       })
     });
 
@@ -254,26 +359,25 @@ Return JSON:
     // Poll for completion with exponential backoff
     const videoUrl = await this.pollVideoStatus(requestId);
 
-    // Return with limitation note
     return {
       videoUrl,
-      duration: this.clipDuration, // Actual duration per clip
-      targetDuration,
-      limitation: `xAI API generates ~${this.clipDuration}s clips. For ${targetDuration}s, consider generating multiple clips.`
+      duration: targetDuration
     };
   }
 
   /**
    * Generate video from an image (Image-to-Video)
-   * Creates more cohesive videos by using a generated thumbnail as the starting frame
+   * Uses an image as the starting frame for the video
    *
    * @param {string} prompt - Video description/motion prompt
    * @param {string} imageUrl - URL of the starting image
+   * @param {number} duration - Duration in seconds (default: 15)
    * @returns {Object} - { videoUrl, duration }
    */
-  async generateVideoFromImage(prompt, imageUrl) {
+  async generateVideoFromImage(prompt, imageUrl, duration = 15) {
     console.log(`[Video] Generating from image: ${imageUrl.substring(0, 50)}...`);
     console.log(`[Video] Motion prompt: ${prompt.substring(0, 80)}...`);
+    console.log(`[Video] Duration: ${duration}s`);
 
     const response = await fetch(`${this.baseUrl}/videos/generations`, {
       method: 'POST',
@@ -284,7 +388,8 @@ Return JSON:
       body: JSON.stringify({
         model: 'grok-imagine-video-a2',
         prompt: prompt,
-        image_url: imageUrl
+        image_url: imageUrl,
+        duration: duration
       })
     });
 
@@ -299,7 +404,7 @@ Return JSON:
 
     // Poll for completion with exponential backoff
     const videoUrl = await this.pollVideoStatus(requestId);
-    return { videoUrl, duration: this.clipDuration };
+    return { videoUrl, duration };
   }
 
   /**
@@ -308,9 +413,10 @@ Return JSON:
    *
    * @param {string} videoUrl - URL of the source video to edit
    * @param {string} prompt - Edit instructions or continuation prompt
+   * @param {number} duration - Duration in seconds (default: 15)
    * @returns {Object} - { videoUrl, duration }
    */
-  async editVideo(videoUrl, prompt) {
+  async editVideo(videoUrl, prompt, duration = 15) {
     console.log(`[Video Edit] Source: ${videoUrl.substring(0, 50)}...`);
     console.log(`[Video Edit] Prompt: ${prompt.substring(0, 80)}...`);
 
@@ -323,7 +429,8 @@ Return JSON:
       body: JSON.stringify({
         model: 'grok-imagine-video-beta',
         video_url: videoUrl,
-        prompt: prompt
+        prompt: prompt,
+        duration: duration
       })
     });
 
@@ -338,19 +445,20 @@ Return JSON:
 
     // Poll for completion with exponential backoff
     const resultUrl = await this.pollVideoStatus(requestId);
-    return { videoUrl: resultUrl, duration: this.clipDuration };
+    return { videoUrl: resultUrl, duration };
   }
 
   /**
-   * Generate multiple video clips for longer duration
-   * Since xAI API doesn't support duration parameter, we generate multiple clips
+   * Generate multiple video clips for different scenes
+   * Useful when you want separate videos for each scene
    *
    * @param {Array<string>} scenes - Array of scene prompts
-   * @param {string} baseImageUrl - Optional starting image for consistency
+   * @param {number} durationPerClip - Duration per clip in seconds (default: 15)
+   * @param {string} baseImageUrl - Optional starting image for first clip
    * @returns {Object} - { clips: Array<{url, duration}>, totalDuration }
    */
-  async generateMultipleClips(scenes, baseImageUrl = null) {
-    console.log(`[Video] Generating ${scenes.length} clips for longer video`);
+  async generateMultipleClips(scenes, durationPerClip = 15, baseImageUrl = null) {
+    console.log(`[Video] Generating ${scenes.length} clips (${durationPerClip}s each)`);
 
     const clips = [];
 
@@ -362,9 +470,9 @@ Return JSON:
         let result;
         if (i === 0 && baseImageUrl) {
           // First clip: use image-to-video for consistency
-          result = await this.generateVideoFromImage(scene, baseImageUrl);
+          result = await this.generateVideoFromImage(scene, baseImageUrl, durationPerClip);
         } else {
-          result = await this.generateVideo(scene, this.clipDuration);
+          result = await this.generateVideo(scene, durationPerClip);
         }
 
         clips.push({
@@ -384,7 +492,7 @@ Return JSON:
     return {
       clips,
       totalDuration,
-      limitation: clips.length < scenes.length ?
+      error: clips.length < scenes.length ?
         `Only ${clips.length}/${scenes.length} clips generated successfully` : null
     };
   }
@@ -401,8 +509,9 @@ Return JSON:
     console.log(`[Video] Polling for request: ${requestId}`);
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      // Exponential backoff: starts at 2s, maxes at 30s
-      const delay = getBackoffDelay(attempt, 2000, 30000);
+      // Exponential backoff: starts at 1s, maxes at 10s (1.5x multiplier)
+      // 5 polls: ~1s, 1.5s, 2.25s, 3.4s, 5s = ~13s total
+      const delay = getBackoffDelay(attempt, 1000, 10000);
       console.log(`[Video] Poll ${attempt + 1}: waiting ${delay}ms before next check`);
       await sleep(delay);
 
@@ -461,89 +570,6 @@ Return JSON:
     throw new Error('Video generation timeout after maximum polling attempts');
   }
 
-  /**
-   * Generate thumbnail image using Grok image model
-   * @param {string} prompt - Image description
-   */
-  async generateThumbnail(prompt) {
-    try {
-      const response = await fetch(`${this.baseUrl}/images/generations`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'grok-imagine-image-a1',
-          prompt: prompt,
-          n: 1,
-          response_format: 'url'
-        })
-      });
-
-      if (!response.ok) {
-        const error = await response.text();
-        console.error(`Thumbnail generation failed: ${error}`);
-        // Fallback to placeholder
-        return { thumbnailUrl: null, isDemo: true };
-      }
-
-      const data = await response.json();
-      return {
-        thumbnailUrl: data.data?.[0]?.url
-      };
-    } catch (error) {
-      console.error('Thumbnail error:', error);
-      return { thumbnailUrl: null, isDemo: true };
-    }
-  }
-
-  /**
-   * Generate cohesive video content using thumbnail-first approach
-   * 1. Generate thumbnail image
-   * 2. Use thumbnail as starting frame for image-to-video
-   * This creates more visually consistent videos
-   *
-   * @param {string} scenePrompt - Scene description
-   * @param {string} thumbnailPrompt - Thumbnail/starting frame description
-   * @returns {Object} - { videoUrl, thumbnailUrl, duration }
-   */
-  async generateCohesiveVideo(scenePrompt, thumbnailPrompt) {
-    console.log(`[Video] Generating cohesive video with thumbnail-first approach`);
-
-    // Step 1: Generate thumbnail
-    const thumbnail = await this.generateThumbnail(thumbnailPrompt);
-
-    if (!thumbnail.thumbnailUrl) {
-      console.log(`[Video] Thumbnail failed, falling back to direct video generation`);
-      const video = await this.generateVideo(scenePrompt);
-      return {
-        videoUrl: video.videoUrl,
-        thumbnailUrl: null,
-        duration: video.duration
-      };
-    }
-
-    console.log(`[Video] Thumbnail generated: ${thumbnail.thumbnailUrl.substring(0, 50)}...`);
-
-    // Step 2: Use thumbnail as starting frame for video
-    try {
-      const video = await this.generateVideoFromImage(scenePrompt, thumbnail.thumbnailUrl);
-      return {
-        videoUrl: video.videoUrl,
-        thumbnailUrl: thumbnail.thumbnailUrl,
-        duration: video.duration
-      };
-    } catch (error) {
-      console.log(`[Video] Image-to-video failed, falling back to direct video:`, error.message);
-      const video = await this.generateVideo(scenePrompt);
-      return {
-        videoUrl: video.videoUrl,
-        thumbnailUrl: thumbnail.thumbnailUrl,
-        duration: video.duration
-      };
-    }
-  }
 }
 
 export default GrokClient;

@@ -25,13 +25,6 @@
       margin-bottom: 10px;
       flex-shrink: 0;
     }
-    .badge {
-      background: #e94560;
-      padding: 4px 10px;
-      border-radius: 4px;
-      font-size: 12px;
-      font-weight: 600;
-    }
     .title {
       font-size: 14px;
       font-weight: 600;
@@ -63,26 +56,17 @@
       overflow-y: auto;
       flex-shrink: 0;
     }
-    .footer {
-      margin-top: 8px;
-      font-size: 10px;
-      color: #555;
-      text-align: center;
-      flex-shrink: 0;
-    }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <span class="badge">🎬 BEEF ALERT</span>
       <span class="title" id="title">Loading...</span>
     </div>
     <div class="video-container">
-      <video id="video" controls autoplay></video>
+      <video id="video" controls></video>
     </div>
     <p class="storyline" id="storyline"></p>
-    <div class="footer">Grokathon 2025</div>
   </div>
   <script src="player.js"></script>
 </body>

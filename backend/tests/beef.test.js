@@ -358,7 +358,7 @@ describe('Beef Generation Pipeline', () => {
         return { videoPrompt: 'test prompt', storyline: 'test storyline' };
       };
 
-      // Phase 2: Media generation (depends on storyline)
+      // Phase 2: Video generation (depends on storyline)
       const generateVideo = async (prompt) => {
         executionOrder.push('video-start');
         await new Promise(r => setTimeout(r, 30));
@@ -366,35 +366,15 @@ describe('Beef Generation Pipeline', () => {
         return { videoUrl: 'https://example.com/video.mp4' };
       };
 
-      const generateThumbnail = async (prompt) => {
-        executionOrder.push('thumbnail-start');
-        await new Promise(r => setTimeout(r, 25));
-        executionOrder.push('thumbnail-end');
-        return { thumbnailUrl: 'https://example.com/thumb.jpg' };
-      };
-
       // Execute pipeline
       const storyline = await generateStoryline();
+      await generateVideo(storyline.videoPrompt);
 
-      // Video and thumbnail should run in parallel after storyline
-      await Promise.all([
-        generateVideo(storyline.videoPrompt),
-        generateThumbnail(storyline.videoPrompt)
-      ]);
-
-      // Verify storyline completed before media started
+      // Verify storyline completed before video started
       const storylineEndIndex = executionOrder.indexOf('storyline-end');
       const videoStartIndex = executionOrder.indexOf('video-start');
-      const thumbnailStartIndex = executionOrder.indexOf('thumbnail-start');
 
       assert.ok(storylineEndIndex < videoStartIndex, 'Storyline should end before video starts');
-      assert.ok(storylineEndIndex < thumbnailStartIndex, 'Storyline should end before thumbnail starts');
-
-      // Verify video and thumbnail started nearly at the same time
-      assert.ok(
-        Math.abs(videoStartIndex - thumbnailStartIndex) <= 1,
-        'Video and thumbnail should start in parallel'
-      );
     });
 
     it('should handle storyline failure gracefully', async () => {
@@ -403,23 +383,22 @@ describe('Beef Generation Pipeline', () => {
       };
 
       const generateVideo = async () => ({ videoUrl: 'https://example.com/video.mp4' });
-      const generateThumbnail = async () => ({ thumbnailUrl: 'https://example.com/thumb.jpg' });
 
       let storyline = null;
-      let mediaGenerated = false;
+      let videoGenerated = false;
 
       try {
         storyline = await generateStoryline();
         // Should not reach here
-        await Promise.all([generateVideo(storyline.videoPrompt), generateThumbnail(storyline.videoPrompt)]);
-        mediaGenerated = true;
+        await generateVideo(storyline.videoPrompt);
+        videoGenerated = true;
       } catch (error) {
         // Expected to catch here
         assert.strictEqual(error.message, 'Storyline generation failed');
       }
 
       assert.strictEqual(storyline, null);
-      assert.strictEqual(mediaGenerated, false);
+      assert.strictEqual(videoGenerated, false);
     });
   });
 

@@ -17,6 +17,10 @@ const videoCache = new Map();
 // Track in-flight prefetch requests to avoid duplicates
 const pendingFetches = new Set();
 
+// Track tweets where user clicked "Generate Beef" (should show player, not button)
+// Key: tweet_id or tweet_text, Value: 'loading' | 'complete' | 'error'
+const activeTweets = new Map();
+
 // Logging utility
 const LOG_PREFIX = '🥩 [BEEF]';
 function log(...args) {
@@ -39,11 +43,9 @@ function isBeefTweet(tweetElement) {
   // Verify it has tweet text (is a real tweet)
   const tweetText = tweetElement.querySelector('[data-testid="tweetText"]');
   if (!tweetText) {
-    logDebug('No tweet text found, skipping');
     return false;
   }
 
-  log('✅ Processing tweet (all tweets enabled)');
   return true;
 }
 
@@ -106,22 +108,37 @@ async function prefetchVideo(tweetElement) {
   }
 }
 
+// Prefetch observer disabled - now using click-to-generate button
+// const prefetchObserver = new IntersectionObserver(...);
+
 /**
- * IntersectionObserver to prefetch videos before tweets enter viewport
- * Uses 1500px margin to start fetching early
+ * Create "Generate Beef" button for a tweet
  */
-const prefetchObserver = new IntersectionObserver((entries) => {
-  entries.forEach(entry => {
-    if (entry.isIntersecting) {
-      const tweet = entry.target;
-      if (isBeefTweet(tweet)) {
-        prefetchVideo(tweet);
-      }
-    }
-  });
-}, {
-  rootMargin: '1500px 0px'  // Detect tweets 1500px before they enter viewport
-});
+function createBeefButton() {
+  const button = document.createElement('button');
+  button.className = 'beef-generate-btn';
+  button.innerHTML = '🎬 Generate Beef';
+  return button;
+}
+
+/**
+ * Add a log entry to the player's logs panel
+ * @param {HTMLElement} container - The video container element
+ * @param {string} message - Log message
+ * @param {string} type - Log type: 'info', 'success', 'error', 'warning'
+ */
+function addLogToPlayer(container, message, type = 'info') {
+  const logsContent = container.querySelector('.beef-logs-content');
+  if (!logsContent) return;
+
+  const entry = document.createElement('div');
+  entry.className = `beef-log-entry beef-log-${type}`;
+  entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+  logsContent.appendChild(entry);
+
+  // Auto-scroll to bottom
+  logsContent.scrollTop = logsContent.scrollHeight;
+}
 
 /**
  * Create video player element
@@ -136,10 +153,6 @@ function createVideoPlayer(data) {
   container.dataset.thumbnailUrl = data.thumbnail_url || '';
 
   container.innerHTML = `
-    <div class="beef-video-header">
-      <span class="beef-badge">🎬 BEEF ALERT</span>
-      <span class="beef-title">${data.title || 'Loading...'}</span>
-    </div>
     <div class="beef-video-wrapper">
       ${data.video_url
         ? `<div class="beef-video-preview" style="cursor: pointer; position: relative;">
@@ -154,9 +167,6 @@ function createVideoPlayer(data) {
             <p>Generating epic drama...</p>
           </div>`
       }
-    </div>
-    <div class="beef-storyline">
-      <p>${data.storyline || 'Analyzing the beef...'}</p>
     </div>
   `;
 
@@ -238,9 +248,46 @@ function embedVideoIframe(player, data) {
 }
 
 /**
- * Inject video player into tweet
+ * Inject beef button into tweet (click-to-generate approach)
  */
-async function injectVideoPlayer(tweetElement) {
+function injectBeefButton(tweetElement) {
+  log('injectBeefButton called');
+
+  // Find insertion point (after tweet content, before engagement bar)
+  const tweetTextEl = tweetElement.querySelector('[data-testid="tweetText"]');
+  if (!tweetTextEl) return;
+
+  const langDiv = tweetTextEl.closest('div[lang]');
+  const tweetContent = langDiv?.parentElement;
+  if (!tweetContent) return;
+
+  const insertParent = tweetContent.parentElement || tweetElement;
+  const insertBefore = tweetContent.nextSibling || null;
+
+  // Create and insert button
+  const button = createBeefButton();
+  insertParent.insertBefore(button, insertBefore);
+
+  // Handle click - replace button with video player
+  button.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Replace button with player
+    button.remove();
+    await injectVideoPlayer(tweetElement, insertParent, insertBefore);
+  });
+
+  log('Beef button injected');
+}
+
+/**
+ * Inject video player into tweet
+ * @param {HTMLElement} tweetElement - The tweet DOM element
+ * @param {HTMLElement} insertParent - Parent element to insert player into
+ * @param {HTMLElement|null} insertBefore - Element to insert player before
+ */
+async function injectVideoPlayer(tweetElement, insertParent = null, insertBefore = null) {
   log('injectVideoPlayer called');
   const tweetData = extractTweetData(tweetElement);
   log('Tweet data extracted:', tweetData);
@@ -251,37 +298,46 @@ async function injectVideoPlayer(tweetElement) {
     return;
   }
 
-  // Find insertion point (after tweet content, before engagement bar)
-  const tweetTextEl = tweetElement.querySelector('[data-testid="tweetText"]');
-  log('Tweet text element found:', !!tweetTextEl);
+  // Mark this tweet as active (user clicked Generate Beef)
+  activeTweets.set(tweetKey, 'loading');
 
-  const langDiv = tweetTextEl?.closest('div[lang]');
-  log('Lang div found:', !!langDiv);
+  // Find insertion point if not provided
+  if (!insertParent) {
+    const tweetTextEl = tweetElement.querySelector('[data-testid="tweetText"]');
+    log('Tweet text element found:', !!tweetTextEl);
 
-  const tweetContent = langDiv?.parentElement;
-  log('Tweet content parent found:', !!tweetContent);
+    const langDiv = tweetTextEl?.closest('div[lang]');
+    log('Lang div found:', !!langDiv);
 
-  if (!tweetContent) {
-    logError('Could not find insertion point for video player');
-    const altInsertPoint = tweetElement.querySelector('[data-testid="tweetText"]')?.parentElement;
-    log('Alt insertion point:', !!altInsertPoint);
-    if (!altInsertPoint) return;
+    const tweetContent = langDiv?.parentElement;
+    log('Tweet content parent found:', !!tweetContent);
+
+    if (!tweetContent) {
+      logError('Could not find insertion point for video player');
+      const altInsertPoint = tweetElement.querySelector('[data-testid="tweetText"]')?.parentElement;
+      log('Alt insertion point:', !!altInsertPoint);
+      if (!altInsertPoint) return;
+    }
+
+    insertParent = tweetContent?.parentElement || tweetElement;
+    insertBefore = tweetContent?.nextSibling || null;
   }
-
-  const insertParent = tweetContent?.parentElement || tweetElement;
-  const insertBefore = tweetContent?.nextSibling || null;
 
   // Check if we have cached data for this tweet
   if (videoCache.has(tweetKey)) {
     log('Cache HIT for tweet:', tweetKey.substring(0, 50));
     const cachedData = videoCache.get(tweetKey);
+    activeTweets.set(tweetKey, 'complete');
 
     // Create player with cached data immediately
     const player = createVideoPlayer(cachedData);
     insertParent.insertBefore(player, insertBefore);
+    addLogToPlayer(player, 'Checking cache... HIT', 'success');
+    addLogToPlayer(player, `Loaded from cache: ${cachedData.title}`, 'success');
 
     if (cachedData.video_url) {
       embedVideoIframe(player, cachedData);
+      addLogToPlayer(player, 'Video ready!', 'success');
     }
     return;
   }
@@ -293,9 +349,15 @@ async function injectVideoPlayer(tweetElement) {
   insertParent.insertBefore(player, insertBefore);
   log('Player placeholder inserted');
 
+  // Add initial log entries
+  addLogToPlayer(player, 'Extracting tweet data...', 'info');
+  addLogToPlayer(player, 'Checking cache... MISS', 'warning');
+  addLogToPlayer(player, 'Calling storyline API...', 'info');
+
   try {
     // Call backend API
     log('Calling backend API:', API_BASE);
+    addLogToPlayer(player, 'Generating video (30-60s)...', 'info');
 
     const response = await fetch(`${API_BASE}`, {
       method: 'POST',
@@ -308,27 +370,42 @@ async function injectVideoPlayer(tweetElement) {
     if (!response.ok) {
       const errorText = await response.text();
       logError('API error response:', errorText);
+      addLogToPlayer(player, `API error: ${response.status}`, 'error');
       throw new Error(`API error: ${response.status}`);
     }
 
     const data = await response.json();
     log('API response data:', data);
+    addLogToPlayer(player, `Storyline ready: ${data.title}`, 'success');
 
-    // Cache the response
+    // Cache the response and mark as complete
     videoCache.set(tweetKey, data);
+    activeTweets.set(tweetKey, 'complete');
     log('Cached video data for tweet. Cache size:', videoCache.size);
 
-    // Update player with real content
-    player.querySelector('.beef-title').textContent = data.title;
-    player.querySelector('.beef-storyline p').textContent = data.storyline;
+    // Update player with real content (check if player still exists in DOM)
+    const storylineEl = player.querySelector('.beef-storyline p');
+    if (storylineEl) {
+      storylineEl.textContent = data.storyline;
+    }
 
     if (data.video_url) {
-      embedVideoIframe(player, data);
+      // Check if player is still in DOM before embedding
+      if (document.contains(player)) {
+        embedVideoIframe(player, data);
+        addLogToPlayer(player, 'Video ready!', 'success');
+      } else {
+        log('Player was removed from DOM during generation, data cached for re-injection');
+        // Trigger rescan to update any visible loading placeholders with completed data
+        setTimeout(() => scanForBeefTweets(), 100);
+      }
     }
 
   } catch (error) {
     logError('Beef generation failed:', error);
     logError('Error stack:', error.stack);
+    activeTweets.set(tweetKey, 'error');
+    addLogToPlayer(player, `Error: ${error.message}`, 'error');
     const loadingEl = player.querySelector('.beef-loading');
     if (loadingEl) {
       loadingEl.innerHTML = `
@@ -341,9 +418,10 @@ async function injectVideoPlayer(tweetElement) {
 
 /**
  * Scan page for beef tweets
+ * Handles both new tweets (show button) and returning tweets (restore player if active)
  */
 function scanForBeefTweets() {
-  log('=== SCANNING FOR TWEETS ===');
+  logDebug('=== SCANNING FOR TWEETS ===');
 
   // Try multiple selectors for tweets
   const selectors = [
@@ -356,38 +434,82 @@ function scanForBeefTweets() {
   let tweets = [];
   for (const selector of selectors) {
     const found = document.querySelectorAll(selector);
-    log(`Selector "${selector}" found ${found.length} elements`);
     if (found.length > 0 && tweets.length === 0) {
       tweets = found;
+      break;
     }
   }
 
-  log(`Total tweet elements to check: ${tweets.length}`);
+  logDebug(`Total tweet elements to check: ${tweets.length}`);
 
-  tweets.forEach((tweet, index) => {
-    logDebug(`--- Checking tweet #${index} ---`);
-    logDebug('Tweet HTML preview:', tweet.innerHTML.substring(0, 200));
+  tweets.forEach((tweet) => {
+    const isBeef = isBeefTweet(tweet);
+    if (!isBeef) return;
 
-    // Observe tweet for prefetching (detects before it enters viewport)
-    prefetchObserver.observe(tweet);
+    const tweetData = extractTweetData(tweet);
+    const tweetKey = tweetData.tweet_id || tweetData.tweet_text;
 
-    const alreadyProcessed = tweet.querySelector('.beef-video-container');
-    logDebug('Already has video container:', !!alreadyProcessed);
+    // Check existing state in DOM
+    const existingPlayer = tweet.querySelector('.beef-video-container');
+    const existingButton = tweet.querySelector('.beef-generate-btn');
 
-    if (alreadyProcessed) {
-      logDebug('Skipping - already processed');
-      return;
+    // Check if this is an active tweet (user previously clicked Generate Beef)
+    if (activeTweets.has(tweetKey)) {
+      const status = activeTweets.get(tweetKey);
+
+      // If status is complete and we have cached data, upgrade any loading placeholder
+      if (status === 'complete' && videoCache.has(tweetKey)) {
+        // Check if there's a loading placeholder that needs upgrading
+        const loadingEl = existingPlayer?.querySelector('.beef-loading');
+        if (loadingEl) {
+          log(`⬆️ Upgrading loading placeholder to completed player:`, tweetKey.substring(0, 30));
+          existingPlayer.remove();
+          injectVideoPlayer(tweet);
+        } else if (!existingPlayer) {
+          // No player at all, inject fresh
+          log(`🔄 Restoring completed tweet:`, tweetKey.substring(0, 30));
+          injectVideoPlayer(tweet);
+        }
+        // If existingPlayer has iframe (not loading), it's already complete - skip
+        return;
+      }
+
+      // Still loading
+      if (status === 'loading') {
+        if (!existingPlayer) {
+          log(`🔄 Restoring loading state:`, tweetKey.substring(0, 30));
+          const tweetTextEl = tweet.querySelector('[data-testid="tweetText"]');
+          const langDiv = tweetTextEl?.closest('div[lang]');
+          const tweetContent = langDiv?.parentElement;
+          if (tweetContent) {
+            const insertParent = tweetContent.parentElement || tweet;
+            const insertBefore = tweetContent.nextSibling || null;
+            const player = createVideoPlayer({ title: 'Processing...', storyline: 'Video generation in progress...' });
+            insertParent.insertBefore(player, insertBefore);
+            addLogToPlayer(player, 'Resumed - generation in progress...', 'info');
+          }
+        }
+        // Already has loading placeholder - leave it
+        return;
+      }
+
+      // Error state - show retry button
+      if (status === 'error') {
+        if (!existingButton && !existingPlayer) {
+          injectBeefButton(tweet);
+        }
+        return;
+      }
     }
 
-    const isBeef = isBeefTweet(tweet);
-    if (isBeef) {
-      log('✅ BEEF DETECTED! Injecting video player...');
-      log('Tweet data:', extractTweetData(tweet));
-      injectVideoPlayer(tweet);
+    // New tweet - show button (only if nothing injected yet)
+    if (!existingPlayer && !existingButton) {
+      logDebug('New tweet, injecting button');
+      injectBeefButton(tweet);
     }
   });
 
-  log('=== SCAN COMPLETE ===');
+  logDebug('=== SCAN COMPLETE ===');
 }
 
 /**
@@ -407,12 +529,12 @@ function initObserver() {
     }
 
     if (shouldScan) {
-      // Debounce scanning
+      // Debounce scanning - reduced to 100ms for faster button appearance
       clearTimeout(window.beefScanTimeout);
       window.beefScanTimeout = setTimeout(() => {
         logDebug('MutationObserver triggered scan');
         scanForBeefTweets();
-      }, 500);
+      }, 100);
     }
   });
 
@@ -422,6 +544,37 @@ function initObserver() {
   });
 
   log('MutationObserver initialized');
+}
+
+/**
+ * Throttle utility for scroll handler
+ */
+function throttle(func, limit) {
+  let inThrottle;
+  return function(...args) {
+    if (!inThrottle) {
+      func.apply(this, args);
+      inThrottle = true;
+      setTimeout(() => inThrottle = false, limit);
+    }
+  };
+}
+
+/**
+ * Initialize scroll listener for faster re-injection
+ * Twitter recycles DOM elements when scrolling, this helps restore our content quickly
+ */
+function initScrollListener() {
+  log('Initializing scroll listener...');
+
+  const throttledScan = throttle(() => {
+    logDebug('Scroll triggered scan');
+    scanForBeefTweets();
+  }, 150); // Scan at most every 150ms during scroll
+
+  window.addEventListener('scroll', throttledScan, { passive: true });
+
+  log('Scroll listener initialized');
 }
 
 // Initialize
@@ -439,11 +592,13 @@ if (document.readyState === 'loading') {
     log('DOMContentLoaded fired');
     scanForBeefTweets();
     initObserver();
+    initScrollListener();
   });
 } else {
   log('DOM already loaded, starting immediately');
   scanForBeefTweets();
   initObserver();
+  initScrollListener();
 }
 
 // Also scan after a delay in case X loads content dynamically

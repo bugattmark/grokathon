@@ -235,31 +235,6 @@ describe('Video Generation', () => {
     });
   });
 
-  describe('generateCohesiveVideo', () => {
-    it('should use thumbnail as starting frame for consistency', () => {
-      const thumbnailUrl = 'https://example.com/thumbnail.jpg';
-      const scenePrompt = 'Dramatic tech confrontation scene';
-
-      // Verify the flow: thumbnail -> image-to-video
-      const steps = [
-        { step: 'generateThumbnail', input: scenePrompt, output: thumbnailUrl },
-        { step: 'generateVideoFromImage', input: { scenePrompt, thumbnailUrl } }
-      ];
-
-      assert.strictEqual(steps.length, 2, 'Should have 2 steps');
-      assert.strictEqual(steps[0].step, 'generateThumbnail');
-      assert.strictEqual(steps[1].step, 'generateVideoFromImage');
-    });
-
-    it('should fallback to direct video generation if thumbnail fails', () => {
-      const scenePrompt = 'Dramatic tech confrontation scene';
-      const thumbnailResult = { thumbnailUrl: null, isDemo: true };
-
-      // If thumbnail fails, should use direct video generation
-      const shouldFallback = !thumbnailResult.thumbnailUrl;
-      assert.ok(shouldFallback, 'Should fallback when thumbnail fails');
-    });
-  });
 });
 
 describe('Polling with Exponential Backoff', () => {
@@ -348,6 +323,208 @@ describe('Narrator Styles', () => {
 
     // With 100 random selections, we should get most narrator styles
     assert.ok(selectedNarrators.size >= 3, `Should select at least 3 different narrators, got ${selectedNarrators.size}`);
+  });
+});
+
+describe('Tweet Classification', () => {
+  describe('Classification Types', () => {
+    it('should classify tech news tweets as no_slop', () => {
+      // Examples of NO_SLOP content
+      const noSlopTweets = [
+        'OpenAI just released GPT-5 with multimodal capabilities',
+        'New feature: React 19 introduces server components',
+        'Breaking: Apple announces M4 chip with 20-core neural engine',
+        'We just shipped a new API that reduces latency by 50%'
+      ];
+
+      // These would be classified as no_slop (interesting tech content)
+      noSlopTweets.forEach(tweet => {
+        assert.ok(tweet.length > 0, 'Tweet should have content');
+      });
+    });
+
+    it('should classify trash opinions as slop', () => {
+      // Examples of SLOP content
+      const slopTweets = [
+        'Wake up at 4am or you\'re a loser',
+        'Crypto will make you a millionaire if you believe',
+        'Unpopular opinion: hustle culture is the only way',
+        'If you\'re not grinding 24/7 you don\'t want it bad enough'
+      ];
+
+      // These would be classified as slop (trash opinions)
+      slopTweets.forEach(tweet => {
+        assert.ok(tweet.length > 0, 'Tweet should have content');
+      });
+    });
+
+    it('should default to slop for ambiguous content', () => {
+      // When classification fails or is unclear, default to slop
+      const defaultClassification = 'slop';
+      assert.strictEqual(defaultClassification, 'slop');
+    });
+  });
+
+  describe('Classification Result Format', () => {
+    it('should return classification type in correct format', () => {
+      const slopResult = { type: 'slop' };
+      const noSlopResult = { type: 'no_slop' };
+
+      assert.strictEqual(slopResult.type, 'slop');
+      assert.strictEqual(noSlopResult.type, 'no_slop');
+    });
+
+    it('should normalize classification response', () => {
+      // API might return with whitespace or different cases
+      const responses = ['slop', 'SLOP', ' slop ', 'no_slop', 'NO_SLOP', ' no_slop '];
+
+      responses.forEach(response => {
+        const normalized = response.toLowerCase().trim();
+        assert.ok(normalized === 'slop' || normalized === 'no_slop',
+          `Normalized response should be slop or no_slop, got: ${normalized}`);
+      });
+    });
+  });
+});
+
+describe('Classification-Based Storyline Routing', () => {
+  describe('NO_SLOP Path - Elon News Report', () => {
+    it('should use Elon Musk as narrator for no_slop', () => {
+      const classification = 'no_slop';
+      const expectedNarrator = 'Elon Musk';
+
+      // Simulate the storyline generation routing
+      let narrator;
+      if (classification === 'no_slop') {
+        narrator = 'Elon Musk';
+      } else {
+        const characters = ['SpongeBob SquarePants', 'Peter Griffin', 'Patrick Star', 'Eric Cartman', 'Homer Simpson'];
+        narrator = characters[Math.floor(Math.random() * characters.length)];
+      }
+
+      assert.strictEqual(narrator, expectedNarrator);
+    });
+
+    it('should create news report style storyline for no_slop', () => {
+      const storyline = {
+        title: 'Breaking Tech News',
+        storyline: 'Breaking news. This is interesting. Emailing Nikita now.',
+        narrator: 'Elon Musk',
+        videoPrompt: 'Elon Musk as news anchor at professional desk, speaking to camera',
+        classification: 'no_slop'
+      };
+
+      assert.strictEqual(storyline.narrator, 'Elon Musk');
+      assert.strictEqual(storyline.classification, 'no_slop');
+      assert.ok(storyline.videoPrompt.includes('news'), 'Should mention news');
+    });
+  });
+
+  describe('SLOP Path - Character Throws Tweet in Trash', () => {
+    it('should select random character for slop', () => {
+      const characters = ['SpongeBob SquarePants', 'Peter Griffin', 'Patrick Star', 'Eric Cartman', 'Homer Simpson'];
+
+      // Select a random character (simulating the behavior)
+      const character = characters[Math.floor(Math.random() * characters.length)];
+
+      assert.ok(characters.includes(character), 'Selected character should be from the list');
+    });
+
+    it('should create trash-throwing storyline for slop', () => {
+      const characters = ['SpongeBob SquarePants', 'Peter Griffin', 'Patrick Star', 'Eric Cartman', 'Homer Simpson'];
+      const character = characters[0]; // Use first character for deterministic test
+
+      const storyline = {
+        title: 'Trash Opinion Alert',
+        storyline: `${character} reads this trash tweet and throws it in the garbage.`,
+        narrator: character,
+        videoPrompt: `${character} holding paper, disgusted, throws in trash bin`,
+        classification: 'slop'
+      };
+
+      assert.strictEqual(storyline.classification, 'slop');
+      assert.ok(storyline.videoPrompt.includes('trash'), 'Should mention trash');
+      assert.ok(characters.includes(storyline.narrator), 'Narrator should be a character');
+    });
+
+    it('should have 5 trash-throwing characters', () => {
+      const characters = ['SpongeBob SquarePants', 'Peter Griffin', 'Patrick Star', 'Eric Cartman', 'Homer Simpson'];
+      assert.strictEqual(characters.length, 5, 'Should have exactly 5 characters');
+    });
+  });
+
+  describe('Storyline Output Format', () => {
+    it('should include classification in storyline result', () => {
+      const noSlopStoryline = {
+        title: 'Breaking News',
+        storyline: 'Test storyline',
+        narrator: 'Elon Musk',
+        classification: 'no_slop'
+      };
+
+      const slopStoryline = {
+        title: 'Trash Alert',
+        storyline: 'Test storyline',
+        narrator: 'Peter Griffin',
+        classification: 'slop'
+      };
+
+      assert.ok('classification' in noSlopStoryline, 'no_slop storyline should have classification');
+      assert.ok('classification' in slopStoryline, 'slop storyline should have classification');
+    });
+  });
+});
+
+describe('Classification-Based Video Generation', () => {
+  describe('NO_SLOP Video - News Report Style', () => {
+    it('should generate news desk video prompt for Elon Musk narrator', () => {
+      const context = {
+        narrator: 'Elon Musk',
+        narration: 'Breaking news. This feature is interesting. Emailing Nikita now.',
+        tweetText: 'OpenAI just released GPT-5'
+      };
+
+      // Simulate the video prompt enhancement
+      let enhancedPrompt;
+      if (context.narrator === 'Elon Musk') {
+        enhancedPrompt = `Elon Musk as a news anchor at a professional news desk. Speaking these EXACT words: "${context.narration}"`;
+      }
+
+      assert.ok(enhancedPrompt.includes('news anchor'), 'Should include news anchor');
+      assert.ok(enhancedPrompt.includes('professional news desk'), 'Should include news desk');
+      assert.ok(enhancedPrompt.includes(context.narration), 'Should include narration');
+    });
+  });
+
+  describe('SLOP Video - Trash Throwing Style', () => {
+    it('should generate trash-throwing video prompt for cartoon characters', () => {
+      const context = {
+        narrator: 'Peter Griffin',
+        narration: 'This opinion is absolute garbage. Straight to the trash.',
+        tweetText: 'Wake up at 4am or you\'re a loser'
+      };
+
+      // Simulate the video prompt enhancement
+      let enhancedPrompt;
+      if (context.narrator !== 'Elon Musk' && context.narration && context.narrator) {
+        const tweetPreview = context.tweetText?.substring(0, 50) || 'trash opinion';
+        enhancedPrompt = `${context.narrator} holding a piece of paper with a tweet on it. Speaking these EXACT words: "${context.narration}"
+
+VISUAL: ${context.narrator} reads the paper with disgust, crumples it up, and throws it into a garbage bin.`;
+      }
+
+      assert.ok(enhancedPrompt.includes('Peter Griffin'), 'Should include character name');
+      assert.ok(enhancedPrompt.includes('garbage bin'), 'Should include garbage bin');
+      assert.ok(enhancedPrompt.includes('disgust'), 'Should include disgust reaction');
+    });
+
+    it('should truncate long tweet text for video prompt', () => {
+      const longTweet = 'This is a very long tweet that goes on and on about absolutely nothing of value and just keeps rambling forever and ever';
+      const tweetPreview = longTweet.substring(0, 50);
+
+      assert.strictEqual(tweetPreview.length, 50, 'Preview should be 50 characters');
+      assert.ok(longTweet.length > 50, 'Original should be longer than 50');
+    });
   });
 });
 

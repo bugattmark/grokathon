@@ -31,8 +31,7 @@ const CACHE_TTL = {
   STORYLINE: 10 * 60 * 1000,    // 10 minutes for storylines
   TWEETS: 2 * 60 * 1000,         // 2 minutes for tweets (more dynamic)
   USER_CONTEXT: 5 * 60 * 1000,   // 5 minutes for user context
-  VIDEO: 30 * 60 * 1000,         // 30 minutes for generated videos
-  THUMBNAIL: 30 * 60 * 1000      // 30 minutes for thumbnails
+  VIDEO: 30 * 60 * 1000          // 30 minutes for generated videos
 };
 
 /**
@@ -92,7 +91,7 @@ function generateRequestId() {
 
 /**
  * POST /api/beef
- * Analyze a tweet and generate beef content with maximum parallelization
+ * Analyze a tweet and generate savage roast video content
  *
  * Request body:
  *   - tweet_id: string (optional)
@@ -102,15 +101,14 @@ function generateRequestId() {
  *   - user_bio: string (optional) - author's bio
  *   - user_followers: string (optional) - follower count
  *   - replying_to: string[] (optional) - users being replied to
- *   - use_cohesive_video: boolean (optional) - use thumbnail-first approach
  */
 router.post('/', async (req, res) => {
   const requestId = generateRequestId();
   const timer = new Timer(requestId);
 
-  // Target duration: 15 seconds
+  // Target duration: 7 seconds for punchy roasts
   // NOTE: xAI API generates ~5-6s clips, so this is a target not a guarantee
-  const TARGET_DURATION = 15;
+  const TARGET_DURATION = 7;
 
   try {
     timer.start('total');
@@ -122,8 +120,7 @@ router.post('/', async (req, res) => {
       thread_context,
       user_bio,
       user_followers,
-      replying_to,
-      use_cohesive_video = false
+      replying_to
     } = req.body;
 
     if (!tweet_text || !author) {
@@ -131,6 +128,21 @@ router.post('/', async (req, res) => {
     }
 
     console.log(`[${requestId}] Processing beef request for @${author}`);
+
+    // Phase 1: Classify tweet (fast, ~2s)
+    // Routes to different video generation paths:
+    // - no_slop (interesting tech content) → Elon Musk news report
+    // - slop (trash opinions) → Character throws tweet in garbage
+    timer.start('classify');
+    let classification = 'slop'; // Default to slop
+    try {
+      const classifyResult = await getGrok().classifyTweet(tweet_text);
+      classification = classifyResult.type;
+      console.log(`[${requestId}] Classification: ${classification}`);
+    } catch (error) {
+      console.error(`[${requestId}] Classification failed, defaulting to slop:`, error.message);
+    }
+    timer.end('classify');
 
     // Build context object for richer storylines
     const context = {
@@ -140,87 +152,36 @@ router.post('/', async (req, res) => {
       replyingTo: replying_to
     };
 
-    // Phase 1: Generate storyline (required for video/thumbnail prompts)
-    // This is the critical path - video and thumbnail depend on it
+    // Phase 2: Generate storyline based on classification
     timer.start('storyline');
-    const cacheKey = Cache.generateKey('storyline', { tweet_text, author, context });
+    const cacheKey = Cache.generateKey('storyline', { tweet_text, author, classification });
     const storyline = await globalCache.getOrCompute(
       cacheKey,
-      () => getGrok().generateStoryline(tweet_text, author, context),
+      () => getGrok().generateStoryline(tweet_text, author, context, classification),
       CACHE_TTL.STORYLINE
     );
     timer.end('storyline');
 
-    // Phase 2: Generate video and thumbnail in parallel
-    // These are independent once we have the storyline
-    timer.start('media_generation');
+    // Phase 3: Generate video
+    timer.start('video');
 
     const videoPrompt = storyline.videoPrompt || storyline.storyline;
-    const thumbnailPrompt = `${storyline.videoPrompt || storyline.storyline}, dramatic movie poster style`;
 
-    let videoResult, thumbnailResult;
+    // Build video context for better generation
+    const videoContext = {
+      author: author || handle,
+      tweetText: tweet_text,
+      narration: storyline.storyline,  // Include the narration script for the video to speak
+      narrator: storyline.narrator     // Include the character name (Joe Rogan, SpongeBob, etc.)
+    };
 
-    if (use_cohesive_video) {
-      // Use thumbnail-first approach for more cohesive videos
-      timer.start('cohesive_video');
-      const cohesiveCacheKey = Cache.generateKey('cohesive_video', { scenePrompt: videoPrompt, thumbnailPrompt });
-      const cohesiveResult = await globalCache.getOrCompute(
-        cohesiveCacheKey,
-        () => getGrok().generateCohesiveVideo(videoPrompt, thumbnailPrompt),
-        CACHE_TTL.VIDEO
-      );
-      timer.end('cohesive_video');
-
-      videoResult = { status: 'fulfilled', value: cohesiveResult };
-      thumbnailResult = { status: 'fulfilled', value: { thumbnailUrl: cohesiveResult.thumbnailUrl } };
-    } else {
-      // Standard parallel generation
-      // Use Promise.allSettled for partial failure tolerance
-      // If thumbnail fails, we can still return the video
-      [videoResult, thumbnailResult] = await Promise.allSettled([
-        (async () => {
-          timer.start('video');
-          const videoCacheKey = Cache.generateKey('video', { prompt: videoPrompt });
-          const result = await globalCache.getOrCompute(
-            videoCacheKey,
-            () => getGrok().generateVideo(videoPrompt, TARGET_DURATION),
-            CACHE_TTL.VIDEO
-          );
-          timer.end('video');
-          return result;
-        })(),
-        (async () => {
-          timer.start('thumbnail');
-          const thumbnailCacheKey = Cache.generateKey('thumbnail', { prompt: thumbnailPrompt });
-          const result = await globalCache.getOrCompute(
-            thumbnailCacheKey,
-            () => getGrok().generateThumbnail(thumbnailPrompt),
-            CACHE_TTL.THUMBNAIL
-          );
-          timer.end('thumbnail');
-          return result;
-        })()
-      ]);
-    }
-
-    timer.end('media_generation');
-
-    // Extract results, handling partial failures
-    const video = videoResult.status === 'fulfilled' ? videoResult.value : null;
-    const thumbnail = thumbnailResult.status === 'fulfilled' ? thumbnailResult.value : null;
-
-    // Log any failures
-    if (videoResult.status === 'rejected') {
-      console.error(`[${requestId}] Video generation failed:`, videoResult.reason);
-    }
-    if (thumbnailResult.status === 'rejected') {
-      console.error(`[${requestId}] Thumbnail generation failed:`, thumbnailResult.reason);
-    }
-
-    // Video is required, thumbnail is optional
-    if (!video) {
-      throw new Error('Video generation failed: ' + (videoResult.reason?.message || 'Unknown error'));
-    }
+    const videoCacheKey = Cache.generateKey('video', { prompt: videoPrompt, author: videoContext.author });
+    const video = await globalCache.getOrCompute(
+      videoCacheKey,
+      () => getGrok().generateVideo(videoPrompt, TARGET_DURATION, videoContext),
+      CACHE_TTL.VIDEO
+    );
+    timer.end('video');
 
     timer.end('total');
     const timings = timer.logSummary();
@@ -229,19 +190,18 @@ router.post('/', async (req, res) => {
       tweet_id,
       title: storyline.title,
       storyline: storyline.storyline,
+      narrator: storyline.narrator,
+      classification: storyline.classification || classification,
       video_url: video.videoUrl,
-      thumbnail_url: thumbnail?.thumbnailUrl || null,
       duration: video.duration,
       target_duration: TARGET_DURATION,
       scenes: storyline.scenes,
-      limitation: video.limitation,
       _meta: {
         requestId,
         timings,
         cached: {
           storyline: globalCache.get(cacheKey) !== undefined,
-          video: globalCache.get(Cache.generateKey('video', { prompt: videoPrompt })) !== undefined,
-          thumbnail: globalCache.get(Cache.generateKey('thumbnail', { prompt: thumbnailPrompt })) !== undefined
+          video: globalCache.get(videoCacheKey) !== undefined
         }
       }
     });
@@ -309,47 +269,43 @@ router.post('/batch', async (req, res) => {
     const storylineResults = await Promise.allSettled(storylinePromises);
     timer.end('storylines');
 
-    // Phase 2: Generate all videos and thumbnails in parallel
-    timer.start('media_generation');
-    const mediaPromises = storylineResults.map(async (result, index) => {
+    // Phase 2: Generate all videos in parallel
+    timer.start('video_generation');
+    const videoPromises = storylineResults.map(async (result, index) => {
       if (result.status === 'rejected' || result.value.error) {
         return result.value || { error: result.reason?.message, index };
       }
 
       const { storyline, tweet } = result.value;
       const videoPrompt = storyline.videoPrompt || storyline.storyline;
-      const thumbnailPrompt = `${videoPrompt}, dramatic movie poster style`;
 
-      const [videoResult, thumbnailResult] = await Promise.allSettled([
-        globalCache.getOrCompute(
+      try {
+        const video = await globalCache.getOrCompute(
           Cache.generateKey('video', { prompt: videoPrompt }),
           () => getGrok().generateVideo(videoPrompt, 15),
           CACHE_TTL.VIDEO
-        ),
-        globalCache.getOrCompute(
-          Cache.generateKey('thumbnail', { prompt: thumbnailPrompt }),
-          () => getGrok().generateThumbnail(thumbnailPrompt),
-          CACHE_TTL.THUMBNAIL
-        )
-      ]);
+        );
 
-      const video = videoResult.status === 'fulfilled' ? videoResult.value : null;
-      const thumbnail = thumbnailResult.status === 'fulfilled' ? thumbnailResult.value : null;
-
-      return {
-        tweet_id: tweet.tweet_id,
-        title: storyline.title,
-        storyline: storyline.storyline,
-        video_url: video?.videoUrl || null,
-        thumbnail_url: thumbnail?.thumbnailUrl || null,
-        duration: video?.duration || null,
-        error: !video ? 'Video generation failed' : null,
-        index
-      };
+        return {
+          tweet_id: tweet.tweet_id,
+          title: storyline.title,
+          storyline: storyline.storyline,
+          narrator: storyline.narrator,
+          video_url: video?.videoUrl || null,
+          duration: video?.duration || null,
+          index
+        };
+      } catch (error) {
+        return {
+          tweet_id: tweet.tweet_id,
+          error: 'Video generation failed: ' + error.message,
+          index
+        };
+      }
     });
 
-    const results = await Promise.allSettled(mediaPromises);
-    timer.end('media_generation');
+    const results = await Promise.allSettled(videoPromises);
+    timer.end('video_generation');
 
     // Flatten results
     const processedResults = results.map(r =>
@@ -492,30 +448,19 @@ router.post('/search', async (req, res) => {
     const storylineResults = await Promise.allSettled(storylinePromises);
     timer.end('storylines');
 
-    // Phase 3: Generate videos and thumbnails in parallel for all successful storylines
-    timer.start('media_generation');
-    const mediaPromises = storylineResults
+    // Phase 3: Generate videos for all successful storylines
+    timer.start('video_generation');
+    const videoPromises = storylineResults
       .filter(r => r.status === 'fulfilled')
       .map(async (result) => {
         const { tweet, storyline } = result.value;
         const videoPrompt = storyline.videoPrompt || storyline.storyline;
-        const thumbnailPrompt = `${videoPrompt}, dramatic movie poster style`;
 
-        const [videoResult, thumbnailResult] = await Promise.allSettled([
-          globalCache.getOrCompute(
-            Cache.generateKey('video', { prompt: videoPrompt }),
-            () => getGrok().generateVideo(videoPrompt, 15),
-            CACHE_TTL.VIDEO
-          ),
-          globalCache.getOrCompute(
-            Cache.generateKey('thumbnail', { prompt: thumbnailPrompt }),
-            () => getGrok().generateThumbnail(thumbnailPrompt),
-            CACHE_TTL.THUMBNAIL
-          )
-        ]);
-
-        const video = videoResult.status === 'fulfilled' ? videoResult.value : null;
-        const thumbnail = thumbnailResult.status === 'fulfilled' ? thumbnailResult.value : null;
+        const video = await globalCache.getOrCompute(
+          Cache.generateKey('video', { prompt: videoPrompt }),
+          () => getGrok().generateVideo(videoPrompt, 15),
+          CACHE_TTL.VIDEO
+        );
 
         return {
           tweet_id: tweet.id,
@@ -524,14 +469,14 @@ router.post('/search', async (req, res) => {
           author: tweet.author?.username || handle,
           title: storyline.title,
           storyline: storyline.storyline,
+          narrator: storyline.narrator,
           video_url: video?.videoUrl || null,
-          thumbnail_url: thumbnail?.thumbnailUrl || null,
           duration: video?.duration || null
         };
       });
 
-    const results = await Promise.allSettled(mediaPromises);
-    timer.end('media_generation');
+    const results = await Promise.allSettled(videoPromises);
+    timer.end('video_generation');
 
     const beefContent = results
       .filter(r => r.status === 'fulfilled')

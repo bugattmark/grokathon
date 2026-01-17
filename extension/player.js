@@ -37,6 +37,17 @@ if (videoUrl) {
   video.onloadeddata = () => {
     console.log('Video loaded successfully');
   };
+
+  // Autoplay when video becomes visible (scrolled into view)
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting && video.paused) {
+        video.play().catch(e => console.log('Autoplay prevented:', e));
+      }
+    });
+  }, { threshold: 0.5 }); // Play when 50% visible
+
+  observer.observe(video);
 } else {
   document.body.innerHTML = `
     <div style="text-align: center; padding: 40px;">
