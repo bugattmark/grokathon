@@ -75,10 +75,16 @@ function extractTweetData(tweetElement) {
 
 /**
  * Create video player element
+ * Note: Uses click-to-open popup due to X.com CSP blocking external video sources
  */
 function createVideoPlayer(data) {
   const container = document.createElement('div');
   container.className = 'beef-video-container';
+
+  // Store video URL for popup
+  container.dataset.videoUrl = data.video_url || '';
+  container.dataset.thumbnailUrl = data.thumbnail_url || '';
+
   container.innerHTML = `
     <div class="beef-video-header">
       <span class="beef-badge">🎬 BEEF ALERT</span>
@@ -86,9 +92,13 @@ function createVideoPlayer(data) {
     </div>
     <div class="beef-video-wrapper">
       ${data.video_url
-        ? `<video class="beef-video" controls poster="${data.thumbnail_url || ''}">
-            <source src="${data.video_url}" type="video/mp4">
-          </video>`
+        ? `<div class="beef-video-preview" style="cursor: pointer; position: relative;">
+            <img src="${data.thumbnail_url || ''}" alt="Video thumbnail" style="width: 100%; border-radius: 8px; ${!data.thumbnail_url ? 'display:none;' : ''}" />
+            <div class="beef-play-overlay" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.7); border-radius: 50%; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center;">
+              <span style="color: white; font-size: 24px; margin-left: 4px;">▶</span>
+            </div>
+            <p style="text-align: center; color: #888; font-size: 12px; margin-top: 8px;">Click to watch video (opens in new window)</p>
+          </div>`
         : `<div class="beef-loading">
             <div class="beef-spinner"></div>
             <p>Generating epic drama...</p>
@@ -99,7 +109,57 @@ function createVideoPlayer(data) {
       <p>${data.storyline || 'Analyzing the beef...'}</p>
     </div>
   `;
+
+  // Add click handler for video popup
+  if (data.video_url) {
+    const preview = container.querySelector('.beef-video-preview');
+    if (preview) {
+      preview.addEventListener('click', () => {
+        log('Opening video in popup:', data.video_url);
+        openVideoPopup(data.video_url, data.title || 'Beef Video');
+      });
+    }
+  }
+
   return container;
+}
+
+/**
+ * Open video in a popup window (bypasses CSP)
+ */
+function openVideoPopup(videoUrl, title) {
+  const width = 800;
+  const height = 600;
+  const left = (screen.width - width) / 2;
+  const top = (screen.height - height) / 2;
+
+  const popupHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>${title}</title>
+      <style>
+        body { margin: 0; background: #000; display: flex; align-items: center; justify-content: center; height: 100vh; }
+        video { max-width: 100%; max-height: 100%; }
+      </style>
+    </head>
+    <body>
+      <video controls autoplay>
+        <source src="${videoUrl}" type="video/mp4">
+        Your browser does not support the video tag.
+      </video>
+    </body>
+    </html>
+  `;
+
+  const popup = window.open('', '_blank', `width=${width},height=${height},left=${left},top=${top}`);
+  if (popup) {
+    popup.document.write(popupHtml);
+    popup.document.close();
+  } else {
+    log('Popup blocked, opening in new tab');
+    window.open(videoUrl, '_blank');
+  }
 }
 
 /**
@@ -179,12 +239,24 @@ async function injectVideoPlayer(tweetElement) {
     player.querySelector('.beef-storyline p').textContent = data.storyline;
 
     if (data.video_url) {
+      log('Updating player with video URL:', data.video_url);
       const wrapper = player.querySelector('.beef-video-wrapper');
       wrapper.innerHTML = `
-        <video class="beef-video" controls poster="${data.thumbnail_url || ''}">
-          <source src="${data.video_url}" type="video/mp4">
-        </video>
+        <div class="beef-video-preview" style="cursor: pointer; position: relative; min-height: 200px; background: #1a1a2e; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-direction: column;">
+          ${data.thumbnail_url ? `<img src="${data.thumbnail_url}" alt="Video thumbnail" style="width: 100%; border-radius: 8px;" onerror="this.style.display='none'" />` : ''}
+          <div class="beef-play-overlay" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(229, 69, 96, 0.9); border-radius: 50%; width: 70px; height: 70px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 20px rgba(229, 69, 96, 0.5);">
+            <span style="color: white; font-size: 28px; margin-left: 4px;">▶</span>
+          </div>
+          <p style="text-align: center; color: #aaa; font-size: 12px; margin-top: 8px; position: absolute; bottom: 10px;">Click to watch video</p>
+        </div>
       `;
+
+      // Add click handler
+      const preview = wrapper.querySelector('.beef-video-preview');
+      preview.addEventListener('click', () => {
+        log('User clicked to watch video');
+        openVideoPopup(data.video_url, data.title || 'Beef Video');
+      });
     }
 
   } catch (error) {
