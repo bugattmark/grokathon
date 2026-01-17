@@ -1,0 +1,107 @@
+/* Tweet Beef Video Generator Styles */
+
+.beef-video-container {
+  margin: 12px 0;
+  border-radius: 16px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border: 1px solid #333;
+}
+
+.beef-video-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: linear-gradient(90deg, #e94560 0%, #ff6b6b 100%);
+}
+
+.beef-badge {
+  background: #000;
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.beef-title {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.beef-video-wrapper {
+  position: relative;
+  width: 100%;
+  background: #000;
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.beef-video {
+  width: 100%;
+  max-height: 400px;
+  object-fit: contain;
+}
+
+.beef-loading {
+  text-align: center;
+  padding: 40px;
+  color: #aaa;
+}
+
+.beef-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #333;
+  border-top-color: #e94560;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 16px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.beef-storyline {
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.beef-storyline p {
+  margin: 0;
+  color: #e0e0e0;
+  font-size: 14px;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.beef-error {
+  color: #e94560;
+  font-style: normal;
+}
+
+/* Dark mode adjustments (X is already dark) */
+@media (prefers-color-scheme: light) {
+  .beef-video-container {
+    background: linear-gradient(135deg, #f0f0f5 0%, #e8e8f0 100%);
+    border-color: #ddd;
+  }
+
+  .beef-storyline {
+    background: rgba(0, 0, 0, 0.05);
+  }
+
+  .beef-storyline p {
+    color: #333;
+  }
+}
