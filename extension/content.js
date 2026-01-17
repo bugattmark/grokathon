@@ -14,6 +14,9 @@ const BEEF_CONFIG = {
 // Key: tweet_id or tweet_text, Value: API response data
 const videoCache = new Map();
 
+// Track in-flight prefetch requests to avoid duplicates
+const pendingFetches = new Set();
+
 // Logging utility
 const LOG_PREFIX = '🥩 [BEEF]';
 function log(...args) {
@@ -73,6 +76,63 @@ function extractTweetData(tweetElement) {
     author: authorHandle
   };
 }
+
+/**
+ * Prefetch video data for a tweet (called before it enters viewport)
+ * Stores result in cache for instant display when user scrolls to it
+ */
+async function prefetchVideo(tweetElement) {
+  const tweetData = extractTweetData(tweetElement);
+  const tweetKey = tweetData.tweet_id || tweetData.tweet_text;
+
+  if (!tweetData.tweet_text) return;
+
+  // Skip if already cached or currently being fetched
+  if (videoCache.has(tweetKey) || pendingFetches.has(tweetKey)) {
+    logDebug('Prefetch skipped (cached or pending):', tweetKey.substring(0, 30));
+    return;
+  }
+
+  log('Prefetching video for tweet:', tweetKey.substring(0, 50));
+  pendingFetches.add(tweetKey);
+
+  try {
+    const response = await fetch(API_BASE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tweetData)
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    videoCache.set(tweetKey, data);
+    log('Prefetch complete, cached:', tweetKey.substring(0, 30));
+  } catch (error) {
+    logError('Prefetch failed:', error.message);
+  } finally {
+    pendingFetches.delete(tweetKey);
+  }
+}
+
+/**
+ * IntersectionObserver to prefetch videos before tweets enter viewport
+ * Uses 1500px margin to start fetching early
+ */
+const prefetchObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const tweet = entry.target;
+      if (isBeefTweet(tweet)) {
+        prefetchVideo(tweet);
+      }
+    }
+  });
+}, {
+  rootMargin: '1500px 0px'  // Detect tweets 1500px before they enter viewport
+});
 
 /**
  * Create video player element
@@ -318,6 +378,9 @@ function scanForBeefTweets() {
   tweets.forEach((tweet, index) => {
     logDebug(`--- Checking tweet #${index} ---`);
     logDebug('Tweet HTML preview:', tweet.innerHTML.substring(0, 200));
+
+    // Observe tweet for prefetching (detects before it enters viewport)
+    prefetchObserver.observe(tweet);
 
     const alreadyProcessed = tweet.querySelector('.beef-video-container');
     logDebug('Already has video container:', !!alreadyProcessed);
