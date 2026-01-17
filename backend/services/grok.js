@@ -177,26 +177,35 @@ Respond with ONLY one word: "slop" or "no_slop"`
 
     if (classification === 'no_slop') {
       // NO SLOP: Elon Musk news report style
+      // Comedy structure: Scene 1 = roast the idea publicly, Scene 2 = silently email team to steal it
       console.log(`[Storyline] Using NO_SLOP path: Elon Musk news report`);
       narratorName = 'Elon Musk';
 
-      systemPrompt = `You are Elon Musk hosting a satirical tech news segment.
+      systemPrompt = `You are Elon Musk hosting a breaking news segment, ROASTING a tech idea.
 
-STYLE: Deadpan news anchor delivery. Sarcastic. Reads the tweet like breaking news, then roasts the feature/idea, then says you're emailing your engineers (Nikita or Toby Pohlen) to implement this immediately.
+STYLE: Deadpan news anchor. Dismissive. Condescending. You think this idea is garbage and X/xAI is already doing better things.
 
-CRITICAL CONSTRAINT: The storyline MUST be EXACTLY 10-15 WORDS. It must fit in 7 seconds.`;
+ROAST THE IDEA HARD:
+- "Nobody would ever use this"
+- "X already does this better"
+- "This is what happens when you don't have real engineers"
+- Be savage, dismissive, arrogant
 
-      userPrompt = `Breaking news segment about this tweet. Roast it, then say you're emailing your team to build it.
+DO NOT mention emailing anyone or building anything. Just roast.
+
+CRITICAL CONSTRAINT: The storyline MUST be EXACTLY 10-15 WORDS. It must fit in 5 seconds when spoken.`;
+
+      userPrompt = `ROAST this tweet as Elon Musk news anchor. Be dismissive and arrogant. Say X/xAI does it better.
 
 Tweet from @${author}: "${tweetText}"
 
 Return JSON:
 {
   "title": "News headline (3-5 words)",
-  "storyline": "MAX 15 WORDS. News anchor Elon roasts this, then emails team to implement.",
+  "storyline": "MAX 15 WORDS. Elon ROASTS the idea. Dismissive, arrogant. Says X does it better.",
   "narrator": "Elon Musk",
-  "videoPrompt": "Elon Musk as news anchor at desk, then typing email on computer",
-  "scenes": ["Elon at news desk..."]
+  "videoPrompt": "Elon Musk as news anchor roasting tech idea",
+  "scenes": ["Elon at news desk roasting"]
 }`;
 
     } else {
@@ -311,11 +320,23 @@ Return JSON:
 
     // Classification-based video prompt enhancement
     if (context.narrator === 'Elon Musk') {
-      // NO SLOP: News report style
-      enhancedPrompt = `Elon Musk as a news anchor at a professional news desk. Speaking these EXACT words: "${context.narration}"
+      // NO SLOP: Two-scene comedy structure
+      // Scene 1: Elon roasts the idea on news desk (with dialogue)
+      // Scene 2: Silent cut to office, emailing "implement this now" to Nikita/Toby, clicks send
+      enhancedPrompt = `TWO SCENES:
 
-VISUAL: Clean news studio setting. Elon in suit sitting at anchor desk, looking at camera. Breaking news graphics on screen. Then cut to him typing on laptop. Professional news broadcast style.`;
-      console.log(`[Video] Enhanced prompt for NO_SLOP: Elon news report`);
+SCENE 1 (0-5 seconds): Elon Musk as news anchor at professional news desk, speaking these EXACT words: "${context.narration}"
+- Clean news studio, breaking news graphics
+- Elon in suit, looking smug and dismissive
+- He is ROASTING and mocking the idea
+
+SCENE 2 (5-12 seconds): SILENT. NO DIALOGUE. Cut to Elon at a computer in the xAI office.
+- He is typing an email
+- Email visible on screen: To: Nikita (or Toby Pohlen), Subject: URGENT, Body: "Implement this now"
+- He clicks SEND button
+- Smirks at camera
+- This is the punchline - he publicly trashed the idea but secretly steals it`;
+      console.log(`[Video] Enhanced prompt for NO_SLOP: Elon two-scene comedy`);
 
     } else if (context.narration && context.narrator) {
       // SLOP: Character throws tweet in trash

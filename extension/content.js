@@ -117,7 +117,7 @@ async function prefetchVideo(tweetElement) {
 function createBeefButton() {
   const button = document.createElement('button');
   button.className = 'beef-generate-btn';
-  button.innerHTML = '🎬 Generate Beef';
+  button.innerHTML = 'Analyze with Gork';
   return button;
 }
 

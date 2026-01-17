@@ -106,9 +106,11 @@ router.post('/', async (req, res) => {
   const requestId = generateRequestId();
   const timer = new Timer(requestId);
 
-  // Target duration: 7 seconds for punchy roasts
-  // NOTE: xAI API generates ~5-6s clips, so this is a target not a guarantee
-  const TARGET_DURATION = 7;
+  // Duration varies by classification:
+  // - no_slop (Elon): 12 seconds (two-scene comedy: roast + silent email)
+  // - slop (character): 5 seconds (single scene trash throw)
+  const DURATION_NO_SLOP = 12;
+  const DURATION_SLOP = 5;
 
   try {
     timer.start('total');
@@ -167,6 +169,10 @@ router.post('/', async (req, res) => {
 
     const videoPrompt = storyline.videoPrompt || storyline.storyline;
 
+    // Select duration based on classification
+    const targetDuration = classification === 'no_slop' ? DURATION_NO_SLOP : DURATION_SLOP;
+    console.log(`[${requestId}] Target duration: ${targetDuration}s for ${classification}`);
+
     // Build video context for better generation
     const videoContext = {
       author: author || handle,
@@ -175,10 +181,10 @@ router.post('/', async (req, res) => {
       narrator: storyline.narrator     // Include the character name (Joe Rogan, SpongeBob, etc.)
     };
 
-    const videoCacheKey = Cache.generateKey('video', { prompt: videoPrompt, author: videoContext.author });
+    const videoCacheKey = Cache.generateKey('video', { prompt: videoPrompt, author: videoContext.author, duration: targetDuration });
     const video = await globalCache.getOrCompute(
       videoCacheKey,
-      () => getGrok().generateVideo(videoPrompt, TARGET_DURATION, videoContext),
+      () => getGrok().generateVideo(videoPrompt, targetDuration, videoContext),
       CACHE_TTL.VIDEO
     );
     timer.end('video');
@@ -194,7 +200,7 @@ router.post('/', async (req, res) => {
       classification: storyline.classification || classification,
       video_url: video.videoUrl,
       duration: video.duration,
-      target_duration: TARGET_DURATION,
+      target_duration: targetDuration,
       scenes: storyline.scenes,
       _meta: {
         requestId,
