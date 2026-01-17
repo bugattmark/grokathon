@@ -1,5 +1,6 @@
 import { XApiProvider } from './providers/xApiProvider.js';
 import { XaiLiveSearchProvider } from './providers/xaiLiveSearchProvider.js';
+import { ThreadFetcher } from './threadFetcher.js';
 
 /**
  * Factory for creating tweet fetcher providers
@@ -16,6 +17,20 @@ export class TweetFetcher {
     }
 
     this.providerName = provider;
+
+    // Thread fetcher always uses X API (requires bearer token)
+    this.threadFetcher = null;
+  }
+
+  /**
+   * Lazy initialization of thread fetcher
+   * Only created when needed to avoid requiring X_BEARER_TOKEN for all uses
+   */
+  getThreadFetcher() {
+    if (!this.threadFetcher) {
+      this.threadFetcher = new ThreadFetcher(process.env.X_BEARER_TOKEN);
+    }
+    return this.threadFetcher;
   }
 
   /**
@@ -26,6 +41,34 @@ export class TweetFetcher {
    */
   async searchBeefTweets(handle, keywords) {
     return this.provider.searchBeefTweets(handle, keywords);
+  }
+
+  /**
+   * Fetch a single tweet by ID
+   * @param {string} tweetIdOrUrl - Tweet ID or URL
+   * @returns {Promise<object>} - Normalized tweet object
+   */
+  async getTweet(tweetIdOrUrl) {
+    return this.getThreadFetcher().getTweet(tweetIdOrUrl);
+  }
+
+  /**
+   * Fetch the complete thread for a tweet
+   * @param {string} tweetIdOrUrl - Tweet ID or URL
+   * @param {object} options - Fetch options
+   * @returns {Promise<object>} - Thread object with all tweets
+   */
+  async getThread(tweetIdOrUrl, options = {}) {
+    return this.getThreadFetcher().getThread(tweetIdOrUrl, options);
+  }
+
+  /**
+   * Get thread context for beef analysis
+   * @param {string} tweetIdOrUrl - Tweet ID or URL
+   * @returns {Promise<object>} - Structured thread context
+   */
+  async getThreadContext(tweetIdOrUrl) {
+    return this.getThreadFetcher().getThreadContext(tweetIdOrUrl);
   }
 
   getProviderName() {
