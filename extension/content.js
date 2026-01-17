@@ -10,8 +10,9 @@ const BEEF_CONFIG = {
   handles: ['elonmusk']
 };
 
-// Track processed tweets
-const processedTweets = new Set();
+// Cache for video data (persists across DOM changes)
+// Key: tweet_id or tweet_text, Value: API response data
+const videoCache = new Map();
 
 // Logging utility
 const LOG_PREFIX = '🥩 [BEEF]';
@@ -154,6 +155,40 @@ function openVideoPopup(videoUrl, title, storyline = '') {
 }
 
 /**
+ * Embed video iframe into player element
+ */
+function embedVideoIframe(player, data) {
+  log('Embedding video iframe with URL:', data.video_url);
+
+  // Hide outer header/storyline since iframe has its own
+  const header = player.querySelector('.beef-video-header');
+  const storyline = player.querySelector('.beef-storyline');
+  if (header) header.style.display = 'none';
+  if (storyline) storyline.style.display = 'none';
+
+  const wrapper = player.querySelector('.beef-video-wrapper');
+
+  // Build iframe URL to extension's player page
+  const playerUrl = chrome.runtime.getURL('player.html');
+  const params = new URLSearchParams({
+    video: data.video_url,
+    title: data.title || 'Beef Video',
+    storyline: data.storyline || ''
+  });
+  const iframeSrc = `${playerUrl}?${params.toString()}`;
+
+  // Embed iframe inline (bypasses X.com CSP)
+  wrapper.innerHTML = `
+    <iframe
+      src="${iframeSrc}"
+      style="width: 100%; height: 420px; border: none; border-radius: 8px;"
+      allow="autoplay"
+    ></iframe>
+  `;
+  log('Video iframe embedded successfully');
+}
+
+/**
  * Inject video player into tweet
  */
 async function injectVideoPlayer(tweetElement) {
@@ -167,14 +202,6 @@ async function injectVideoPlayer(tweetElement) {
     return;
   }
 
-  if (processedTweets.has(tweetKey)) {
-    log('Tweet already processed, skipping:', tweetKey.substring(0, 50));
-    return;
-  }
-
-  processedTweets.add(tweetKey);
-  log('Added to processed tweets. Total processed:', processedTweets.size);
-
   // Find insertion point (after tweet content, before engagement bar)
   const tweetTextEl = tweetElement.querySelector('[data-testid="tweetText"]');
   log('Tweet text element found:', !!tweetTextEl);
@@ -187,26 +214,39 @@ async function injectVideoPlayer(tweetElement) {
 
   if (!tweetContent) {
     logError('Could not find insertion point for video player');
-    // Try alternative insertion points
     const altInsertPoint = tweetElement.querySelector('[data-testid="tweetText"]')?.parentElement;
     log('Alt insertion point:', !!altInsertPoint);
     if (!altInsertPoint) return;
   }
 
-  // Create placeholder
-  log('Creating video player placeholder...');
-  const player = createVideoPlayer({ title: 'Processing...', storyline: 'Generating your beef content...' });
-
   const insertParent = tweetContent?.parentElement || tweetElement;
   const insertBefore = tweetContent?.nextSibling || null;
-  log('Inserting player into DOM');
+
+  // Check if we have cached data for this tweet
+  if (videoCache.has(tweetKey)) {
+    log('Cache HIT for tweet:', tweetKey.substring(0, 50));
+    const cachedData = videoCache.get(tweetKey);
+
+    // Create player with cached data immediately
+    const player = createVideoPlayer(cachedData);
+    insertParent.insertBefore(player, insertBefore);
+
+    if (cachedData.video_url) {
+      embedVideoIframe(player, cachedData);
+    }
+    return;
+  }
+
+  log('Cache MISS, calling API for tweet:', tweetKey.substring(0, 50));
+
+  // Create placeholder
+  const player = createVideoPlayer({ title: 'Processing...', storyline: 'Generating your beef content...' });
   insertParent.insertBefore(player, insertBefore);
-  log('Player inserted successfully!');
+  log('Player placeholder inserted');
 
   try {
     // Call backend API
     log('Calling backend API:', API_BASE);
-    log('Request body:', JSON.stringify(tweetData));
 
     const response = await fetch(`${API_BASE}`, {
       method: 'POST',
@@ -225,39 +265,16 @@ async function injectVideoPlayer(tweetElement) {
     const data = await response.json();
     log('API response data:', data);
 
+    // Cache the response
+    videoCache.set(tweetKey, data);
+    log('Cached video data for tweet. Cache size:', videoCache.size);
+
     // Update player with real content
     player.querySelector('.beef-title').textContent = data.title;
     player.querySelector('.beef-storyline p').textContent = data.storyline;
 
     if (data.video_url) {
-      log('Embedding video iframe with URL:', data.video_url);
-
-      // Hide outer header/storyline since iframe has its own
-      const header = player.querySelector('.beef-video-header');
-      const storyline = player.querySelector('.beef-storyline');
-      if (header) header.style.display = 'none';
-      if (storyline) storyline.style.display = 'none';
-
-      const wrapper = player.querySelector('.beef-video-wrapper');
-
-      // Build iframe URL to extension's player page
-      const playerUrl = chrome.runtime.getURL('player.html');
-      const params = new URLSearchParams({
-        video: data.video_url,
-        title: data.title || 'Beef Video',
-        storyline: data.storyline || ''
-      });
-      const iframeSrc = `${playerUrl}?${params.toString()}`;
-
-      // Embed iframe inline (bypasses X.com CSP)
-      wrapper.innerHTML = `
-        <iframe
-          src="${iframeSrc}"
-          style="width: 100%; height: 420px; border: none; border-radius: 8px;"
-          allow="autoplay"
-        ></iframe>
-      `;
-      log('Video iframe embedded successfully');
+      embedVideoIframe(player, data);
     }
 
   } catch (error) {
