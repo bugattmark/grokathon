@@ -3,8 +3,9 @@
  * Handles storyline generation and video generation via xAI
  */
 
-// Comedian styles for randomized narration
-const COMEDIAN_STYLES = [
+// Narrator styles for randomized narration (comedians + cartoons)
+const NARRATOR_STYLES = [
+  // === COMEDIANS ===
   {
     name: 'Theo Von',
     style: `You are Theo Von narrating tech drama with your Louisiana storytelling style.
@@ -25,13 +26,46 @@ Be intense, fascinated, and go on tangents about how crazy the situation is.`
 Use your signature style: yelling, exaggerated reactions, and self-deprecating humor.
 React like everything is personally attacking you. Reference being short.
 Be loud, animated, and turn the drama into a personal crisis.`
+  },
+  // === CARTOONS ===
+  {
+    name: 'SpongeBob SquarePants',
+    style: `You are narrating tech drama in the style of SpongeBob SquarePants.
+Use the French narrator's dramatic documentary voice: "Ahh, ze tech industry..."
+Include SpongeBob's naive optimism, Patrick's dumb hot takes, and Squidward's bitter cynicism.
+Reference Bikini Bottom, jellyfishing, and the Krusty Krab. Say "I'm ready!" at inappropriate moments.
+Make it absurdly wholesome while completely missing the point of the drama.`
+  },
+  {
+    name: 'South Park',
+    style: `You are narrating tech drama in the brutal satirical style of South Park.
+Nothing is sacred. Be crude, offensive, and mercilessly mock everyone involved.
+Use Cartman's scheming sociopathy, Stan's "dude this is pretty f'd up" reactions, Kyle's moral outrage, and Kenny dying somehow.
+Reference "Oh my god!", "You bastards!", and "I learned something today..."
+Tear apart the hypocrisy with savage, equal-opportunity offensiveness.`
+  },
+  {
+    name: 'Courage the Cowardly Dog',
+    style: `You are narrating tech drama in the style of Courage the Cowardly Dog.
+Frame EVERYTHING as existentially terrifying. The tech beef is a nightmarish horror unfolding.
+Use Courage's anxious screaming energy: "AAAAAHHH!" and "The things I do for love!"
+Include Eustace yelling "STUPID DOG!" at the situation. Muriel remains oblivious and kind.
+Make the mundane tech drama feel like cosmic Lovecraftian horror in rural Kansas.`
+  },
+  {
+    name: 'Family Guy',
+    style: `You are narrating tech drama in the style of Family Guy.
+Use constant cutaway gags: "This is worse than that time I..." followed by absurd scenarios.
+Include Peter's confident stupidity, Brian's insufferable pretentiousness, and Stewie's theatrical villainy.
+Make random pop culture references that barely connect. Break the fourth wall.
+The drama should spiral into increasingly unrelated tangents and flashbacks.`
   }
 ];
 
-function getRandomComedianStyle() {
-  const comedian = COMEDIAN_STYLES[Math.floor(Math.random() * COMEDIAN_STYLES.length)];
-  console.log(`[Storyline] Using comedian style: ${comedian.name}`);
-  return comedian;
+function getRandomNarratorStyle() {
+  const narrator = NARRATOR_STYLES[Math.floor(Math.random() * NARRATOR_STYLES.length)];
+  console.log(`[Storyline] Using narrator style: ${narrator.name}`);
+  return narrator;
 }
 
 export class GrokClient {
@@ -52,8 +86,8 @@ export class GrokClient {
     console.log(`[Storyline] Input: author=${author}, category=${category}`);
     console.log(`[Storyline] Tweet: ${tweetText.substring(0, 100)}`);
 
-    // Get random comedian style
-    const comedian = getRandomComedianStyle();
+    // Get random narrator style (comedian or cartoon)
+    const narrator = getRandomNarratorStyle();
 
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
@@ -65,14 +99,14 @@ export class GrokClient {
         model: 'grok-4-fast-reasoning',
         messages: [{
           role: 'system',
-          content: `${comedian.style}
+          content: `${narrator.style}
 
 Create over-the-top dramatic commentary for tech drama.
 Be extremely dramatic, funny, and meme-worthy. Use internet humor.
 Keep it short (2-3 sentences) but punchy and in character.`
         }, {
           role: 'user',
-          content: `Create a dramatic 10-second video script for this beef tweet, narrated in the style of ${comedian.name}:
+          content: `Create a dramatic 10-second video script for this beef tweet, narrated in the style of ${narrator.name}:
 
 Author: @${author}
 Tweet: "${tweetText}"
@@ -80,7 +114,7 @@ Category: ${category}
 
 Return JSON with:
 - title: Epic episode title (e.g., "Episode 47: The Great Unbundling")
-- storyline: The dramatic narration in ${comedian.name}'s voice (2-3 sentences with their signature phrases)
+- storyline: The dramatic narration in ${narrator.name}'s voice (2-3 sentences with their signature phrases)
 - videoPrompt: A visual description for video generation (1 sentence describing the scene)`
         }],
         temperature: 0.9
