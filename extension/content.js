@@ -116,7 +116,7 @@ function createVideoPlayer(data) {
     if (preview) {
       preview.addEventListener('click', () => {
         log('Opening video in popup:', data.video_url);
-        openVideoPopup(data.video_url, data.title || 'Beef Video');
+        openVideoPopup(data.video_url, data.title || 'Beef Video', data.storyline || '');
       });
     }
   }
@@ -125,40 +125,31 @@ function createVideoPlayer(data) {
 }
 
 /**
- * Open video in a popup window (bypasses CSP)
+ * Open video in extension page (bypasses X.com CSP)
+ * Uses chrome.runtime.getURL to open the extension's player.html
  */
-function openVideoPopup(videoUrl, title) {
-  const width = 800;
-  const height = 600;
-  const left = (screen.width - width) / 2;
-  const top = (screen.height - height) / 2;
+function openVideoPopup(videoUrl, title, storyline = '') {
+  const width = 850;
+  const height = 700;
+  const left = Math.round((screen.width - width) / 2);
+  const top = Math.round((screen.height - height) / 2);
 
-  const popupHtml = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>${title}</title>
-      <style>
-        body { margin: 0; background: #000; display: flex; align-items: center; justify-content: center; height: 100vh; }
-        video { max-width: 100%; max-height: 100%; }
-      </style>
-    </head>
-    <body>
-      <video controls autoplay>
-        <source src="${videoUrl}" type="video/mp4">
-        Your browser does not support the video tag.
-      </video>
-    </body>
-    </html>
-  `;
+  // Build URL to extension's player page
+  const playerUrl = chrome.runtime.getURL('player.html');
+  const params = new URLSearchParams({
+    video: videoUrl,
+    title: title,
+    storyline: storyline
+  });
+  const fullUrl = `${playerUrl}?${params.toString()}`;
 
-  const popup = window.open('', '_blank', `width=${width},height=${height},left=${left},top=${top}`);
-  if (popup) {
-    popup.document.write(popupHtml);
-    popup.document.close();
-  } else {
+  log('Opening extension player:', fullUrl);
+
+  // Open in popup window
+  const popup = window.open(fullUrl, '_blank', `width=${width},height=${height},left=${left},top=${top}`);
+  if (!popup) {
     log('Popup blocked, opening in new tab');
-    window.open(videoUrl, '_blank');
+    window.open(fullUrl, '_blank');
   }
 }
 
@@ -255,7 +246,7 @@ async function injectVideoPlayer(tweetElement) {
       const preview = wrapper.querySelector('.beef-video-preview');
       preview.addEventListener('click', () => {
         log('User clicked to watch video');
-        openVideoPopup(data.video_url, data.title || 'Beef Video');
+        openVideoPopup(data.video_url, data.title || 'Beef Video', data.storyline || '');
       });
     }
 

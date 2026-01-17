@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Beef Video Player</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #fff;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .badge {
+      background: #e94560;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .title {
+      font-size: 20px;
+      font-weight: 600;
+      max-width: 600px;
+      text-align: center;
+    }
+    .video-container {
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+      max-width: 100%;
+    }
+    video {
+      display: block;
+      max-width: 800px;
+      max-height: 70vh;
+      width: 100%;
+    }
+    .storyline {
+      margin-top: 20px;
+      max-width: 600px;
+      text-align: center;
+      color: #aaa;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .footer {
+      margin-top: 30px;
+      font-size: 12px;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="badge">BEEF ALERT</span>
+    <span class="title" id="title">Loading...</span>
+  </div>
+  <div class="video-container">
+    <video id="video" controls autoplay></video>
+  </div>
+  <p class="storyline" id="storyline"></p>
+  <div class="footer">Grokathon 2025</div>
+  <script src="player.js"></script>
+</body>
+</html>
