@@ -5,9 +5,9 @@
 
 const API_BASE = 'http://localhost:3000/api/beef';
 
-// Beef detection configuration - triggers on ALL tweets from these handles
+// Beef detection configuration - triggers on ALL tweets
 const BEEF_CONFIG = {
-  handles: ['elonmusk']
+  enabled: true  // Process every tweet
 };
 
 // Cache for video data (persists across DOM changes)
@@ -31,31 +31,20 @@ function logError(...args) {
 
 /**
  * Check if tweet matches beef criteria
+ * Now processes ALL tweets
  */
 function isBeefTweet(tweetElement) {
-  // Log all potential author elements for debugging
-  const allLinks = tweetElement.querySelectorAll('a[href^="/"]');
-  logDebug('All links in tweet:', Array.from(allLinks).map(a => a.getAttribute('href')));
+  if (!BEEF_CONFIG.enabled) return false;
 
-  const authorElement = tweetElement.querySelector('[data-testid="User-Name"] a[href^="/"]');
-  logDebug('Author element found:', !!authorElement);
-
-  if (!authorElement) {
-    // Try alternative selectors
-    const altAuthor = tweetElement.querySelector('a[role="link"][href^="/"]');
-    logDebug('Alt author element:', altAuthor?.getAttribute('href'));
+  // Verify it has tweet text (is a real tweet)
+  const tweetText = tweetElement.querySelector('[data-testid="tweetText"]');
+  if (!tweetText) {
+    logDebug('No tweet text found, skipping');
+    return false;
   }
 
-  const authorHandle = authorElement?.getAttribute('href')?.replace('/', '').split('/')[0] || '';
-  logDebug('Extracted author handle:', authorHandle);
-
-  // Check if author is in our watch list - triggers on ALL their tweets
-  const isMatch = BEEF_CONFIG.handles.some(h =>
-    authorHandle.toLowerCase() === h.toLowerCase()
-  );
-
-  log(`isBeefTweet check: handle="${authorHandle}" matches=${isMatch}`);
-  return isMatch;
+  log('✅ Processing tweet (all tweets enabled)');
+  return true;
 }
 
 /**
